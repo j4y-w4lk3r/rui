@@ -1,0 +1,22 @@
+.env
+.env.*
+!.env.example
+
+# Binary names that match `go build ./cmd/<name>` output. Anchored to the
+# repo root so they don't accidentally hide our cmd/<name>/ source dirs.
+/orange-tui
+/devices
+/probe
+/diagnose
+/lab
+/capture
+/login-dump
+*.exe
+
+captures/
+reports/
+debug.log
+lab.log
+devices.log
+
+.DS_Store
