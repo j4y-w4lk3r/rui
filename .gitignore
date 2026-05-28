@@ -4,6 +4,7 @@
 
 # Binary names that match `go build ./cmd/<name>` output. Anchored to the
 # repo root so they don't accidentally hide our cmd/<name>/ source dirs.
+/rui
 /orange-tui
 /devices
 /probe
@@ -13,6 +14,10 @@
 /login-dump
 *.exe
 
+# goreleaser snapshot/release output. Re-created on every build.
+/dist/
+
+# Research-toolkit output dirs (cmd/capture, cmd/diagnose, cmd/lab).
 captures/
 reports/
 debug.log
