@@ -30,23 +30,44 @@ builds:
     goos:
       - darwin
       - linux
+      - windows
     goarch:
       - amd64
       - arm64
-    ldflags:
-      - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.ShortCommit}}
-      - -X main.date={{.Date}}
+      - arm
+    goarm:
+      # 32-bit ARM has multiple sub-architectures. v7 covers Pi 2/3,
+      # most Cortex-A7/A9 SBCs, and the routers people actually run
+      # this thing on. v6 (Pi 1, Pi Zero) is too rare to bother.
+      - "7"
+    ignore:
+      # darwin/arm doesn't exist as a real platform (Apple is arm64-only)
+      - goos: darwin
+        goarch: arm
+      # We don't ship 32-bit Windows ARM (audience is essentially zero)
+      # nor 64-bit Windows ARM yet (Surface Pro X / Apple-Silicon-VM
+      # users are a tiny niche; can add later if asked).
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: arm64
 
 archives:
   - id: rui
     formats: [tar.gz]
-    # Format example: rui_0.1.0_Darwin_arm64.tar.gz
+    # Windows users overwhelmingly expect .zip; let them have it.
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    # Format examples:
+    #   rui_0.1.1_Darwin_arm64.tar.gz
+    #   rui_0.1.1_Linux_armv7.tar.gz
+    #   rui_0.1.1_Windows_x86_64.zip
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
+      {{- else if and (eq .Arch "arm") (eq .Arm "7") }}armv7
       {{- else }}{{ .Arch }}{{ end }}
     files:
       - LICENSE
@@ -73,6 +94,16 @@ changelog:
 # Auto-publishes the formula to j4y-w4lk3r/homebrew-rui.
 # Requires repo secret HOMEBREW_TAP_GITHUB_TOKEN (fine-grained PAT with
 # Contents: read+write on j4y-w4lk3r/homebrew-rui).
+#
+# Note on the deprecation warning: in goreleaser v2.16 `brews:` is
+# soft-deprecated in favor of `homebrew_casks:`. We deliberately stay
+# on `brews:` for now because casks invoke macOS Gatekeeper, and our
+# binaries are unsigned — first-run on a Mac would show "rui can't be
+# opened" until the user manually clears the quarantine xattr. Until
+# we set up Apple Developer notarization (or migrate to a hand-rolled
+# formula-bump script), formulas give a strictly better UX for our
+# audience. The deprecation will keep working until at least the next
+# major goreleaser release.
 brews:
   - name: rui
     repository:

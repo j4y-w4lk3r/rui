@@ -26,13 +26,24 @@ jobs:
         # Catches "package compiles but binary refuses to link" before tag time.
         run: go build ./...
 
-  goreleaser-check:
-    # Validates .goreleaser.yaml without actually building. Quick.
+  goreleaser-build:
+    # Cross-build the binaries goreleaser would produce, but skip
+    # publishing. Catches real release-time errors (missing files,
+    # invalid template syntax, broken cross-compile) without the
+    # `goreleaser check` brittleness — that command fails non-zero on
+    # deprecated-but-still-functional config (e.g. `brews:` in v2.16+),
+    # which would block CI for a non-issue.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: check
+          args: build --snapshot --clean
