@@ -1,0 +1,93 @@
+# goreleaser config for rui.
+#
+# Triggered by `.github/workflows/release.yml` on `git push origin vX.Y.Z`:
+#   1. Cross-compiles `cmd/rui` for darwin/linux × amd64/arm64.
+#   2. Tarballs each binary with LICENSE + README.md alongside.
+#   3. Computes checksums.txt over all archives.
+#   4. Creates the GitHub release with all artifacts attached.
+#   5. Renders Formula/rui.rb pointing at the per-platform tarballs and
+#      pushes it to j4y-w4lk3r/homebrew-rui (auth via HOMEBREW_TAP_GITHUB_TOKEN).
+#
+# Local dry-run (no publish, builds in dist/):
+#   goreleaser release --snapshot --clean
+# Local single-arch build (fastest sanity check):
+#   goreleaser build --snapshot --clean --single-target
+
+version: 2
+
+project_name: rui
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: rui
+    main: ./cmd/rui
+    binary: rui
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: rui
+    formats: [tar.gz]
+    # Format example: rui_0.1.0_Darwin_arm64.tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - 'merge conflict'
+      - '(?i)^typo'
+
+# Auto-publishes the formula to j4y-w4lk3r/homebrew-rui.
+# Requires repo secret HOMEBREW_TAP_GITHUB_TOKEN (fine-grained PAT with
+# Contents: read+write on j4y-w4lk3r/homebrew-rui).
+brews:
+  - name: rui
+    repository:
+      owner: j4y-w4lk3r
+      name: homebrew-rui
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/j4y-w4lk3r/rui"
+    description: "Terminal UI for managing home routers (Orange Livebox/Funbox today; Play/Fritz on the roadmap)"
+    license: "MIT"
+    commit_author:
+      name: rui-release-bot
+      email: rui-release-bot@users.noreply.github.com
+    commit_msg_template: "rui: bump to {{ .Tag }}"
+    test: |
+      system "#{bin}/rui", "-h"
+    install: |
+      bin.install "rui"
