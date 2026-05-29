@@ -127,3 +127,48 @@ brews:
       system "#{bin}/rui", "-h"
     install: |
       bin.install "rui"
+
+# Auto-publishes the AUR package `rui-bin` to aur.archlinux.org on every
+# release. Pulls the linux/amd64 archive that the builds:/archives:
+# stages already produce, generates a PKGBUILD + .SRCINFO referencing it
+# by URL+SHA256, and pushes via SSH using the AUR_SSH_PRIVATE_KEY secret
+# (a non-SK ed25519 keypair whose public half is registered on this
+# user's AUR profile).
+#
+# Naming: `rui-bin` (binary package, mirrors `pikvm-bin`/many other -bin
+# packages on AUR). A `rui` (source package) could be added later for
+# arm64-on-Arch or non-glibc users; until that's a real ask, -bin
+# covers ~99% of Arch users on x86_64.
+#
+# AUR specifics handled by goreleaser:
+#   - .SRCINFO regeneration (no makepkg toolchain needed in CI)
+#   - sha256sum computation against the GitHub release artifact
+#   - git clone/edit/commit/push to ssh://aur@aur.archlinux.org/rui-bin.git
+aurs:
+  - name: rui-bin
+    homepage: "https://github.com/j4y-w4lk3r/rui"
+    description: "Terminal UI for managing home routers (Orange Livebox/Funbox today; Play/Fritz on the roadmap)"
+    maintainers:
+      - "j4y <j4y_w4lk3r@pobox.com>"
+    license: "MIT"
+    private_key: '{{ .Env.AUR_SSH_PRIVATE_KEY }}'
+    git_url: "ssh://aur@aur.archlinux.org/rui-bin.git"
+    skip_upload: false
+    provides:
+      - rui
+    conflicts:
+      - rui
+      - rui-git
+    depends:
+      - glibc
+    optdepends:
+      - 'chromium: --capture mode (records router web UI traffic) needs a Chrome/Chromium binary'
+      - 'xdg-utils: ergonomic clipboard support for `y`/`Y` device-copy keys'
+    commit_author:
+      name: rui-release-bot
+      email: rui-release-bot@users.noreply.github.com
+    commit_msg_template: "rui-bin: bump to {{ .Tag }}"
+    package: |-
+      install -Dm755 "./rui" "${pkgdir}/usr/bin/rui"
+      install -Dm644 "./LICENSE"   "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+      install -Dm644 "./README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"

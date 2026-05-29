@@ -32,3 +32,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Fine-grained PAT with Contents:read+write on j4y-w4lk3r/homebrew-rui
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          # Non-SK ed25519 SSH private key whose public half is registered
+          # on the AUR profile of `j4y-w4lk3r`. Goreleaser's aurs: stage
+          # uses it to git-push the rendered PKGBUILD + .SRCINFO to
+          # ssh://aur@aur.archlinux.org/rui-bin.git on every tag.
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
