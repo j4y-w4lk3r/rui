@@ -26,6 +26,7 @@ var (
 
 func main() {
 	envPath := flag.String("env", "", "path to .env file with router credentials (overrides the cascade)")
+	profile := flag.String("profile", "", "load credentials from 1Password (e.g. PL → PLH2-Orange)")
 	debug := flag.Bool("debug", false, "log every HTTP request/response to stderr (use with 2>debug.log)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
@@ -33,6 +34,13 @@ func main() {
 	if *showVersion {
 		fmt.Printf("rui %s (commit %s, built %s)\n", version, commit, date)
 		return
+	}
+
+	if *profile != "" {
+		if err := config.ApplyProfile(*profile); err != nil {
+			fmt.Fprintln(os.Stderr, "rui: profile error:", err)
+			os.Exit(1)
+		}
 	}
 
 	cfg, err := config.Load(*envPath)
@@ -97,6 +105,11 @@ func printNoConfigHelp(envPath string) {
 	fmt.Fprintln(os.Stderr, "  (c) one-shot via env vars")
 	fmt.Fprintln(os.Stderr, "      username=admin password=your-router-admin-password rui")
 	fmt.Fprintln(os.Stderr, "")
+	if names := config.ProfileNames(); len(names) > 0 {
+		fmt.Fprintln(os.Stderr, "  (d) 1Password profile (requires op CLI)")
+		fmt.Fprintln(os.Stderr, "      rui -profile", names[0])
+		fmt.Fprintln(os.Stderr, "")
+	}
 	fmt.Fprintln(os.Stderr, "Then run rui again. See `rui -h` or")
 	fmt.Fprintln(os.Stderr, "https://github.com/j4y-w4lk3r/rui#first-run for details.")
 }
