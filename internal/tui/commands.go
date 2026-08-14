@@ -65,6 +65,7 @@ type (
 )
 
 const callTimeout = 8 * time.Second
+const devicesTimeout = 25 * time.Second
 
 func loginCmd(c *livebox.Client) tea.Cmd {
 	return func() tea.Msg {
@@ -94,7 +95,7 @@ func fetchWAN(c *livebox.Client) tea.Cmd {
 
 func fetchDevices(c *livebox.Client) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), devicesTimeout)
 		defer cancel()
 		d, err := c.ListDevices(ctx)
 		return devicesMsg{devices: d, err: err}
