@@ -118,7 +118,7 @@ func renderTileGrid(tiles []tile, selectedIdx, widthCols int, availableWidth int
 func (m Model) servicesTiles() []tile {
 	devSub := "—"
 	devSt := stateNeutral
-	if m.devices != nil {
+	if m.devicesLoaded {
 		online := 0
 		for _, d := range m.devices {
 			if d.Active {

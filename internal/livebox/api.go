@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 )
 
 // DeviceInfo is a subset of the system-wide Livebox identity payload.
@@ -89,7 +90,13 @@ func (c *Client) ListDevices(ctx context.Context) ([]Device, error) {
 
 	var lastErr error
 	for _, a := range attempts {
-		resp, err := c.call(ctx, a.service, a.method, a.params)
+		if ctx.Err() != nil {
+			lastErr = ctx.Err()
+			break
+		}
+		perAttempt, cancel := context.WithTimeout(ctx, 6*time.Second)
+		resp, err := c.call(perAttempt, a.service, a.method, a.params)
+		cancel()
 		if err != nil {
 			lastErr = err
 			continue
@@ -102,15 +109,13 @@ func (c *Client) ListDevices(ctx context.Context) ([]Device, error) {
 		if len(devices) > 0 {
 			return devices, nil
 		}
-		// Success with zero devices is still success – just return it.
-		if resp != nil {
-			return nil, nil
-		}
+		// Parsed OK but empty — still a successful fetch.
+		return []Device{}, nil
 	}
 	if lastErr != nil {
 		return nil, lastErr
 	}
-	return nil, nil
+	return []Device{}, nil
 }
 
 // extractDevices accepts any of the several shapes the box uses for device

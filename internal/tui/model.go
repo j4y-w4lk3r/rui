@@ -53,6 +53,9 @@ type Model struct {
 	gridIdx   int // service/eko/etc. tile selection
 	deviceIdx int // devices list selection
 
+	showHelp   bool // full-screen ? help overlay
+	helpScroll int  // first visible line when help overflows the terminal
+
 	// Per-modal state.
 	mode      editMode
 	rename    textinput.Model
@@ -69,7 +72,11 @@ type Model struct {
 	info    *livebox.DeviceInfo
 	wan     *livebox.WANStatus
 	devices []livebox.Device
-	wifi    *livebox.WiFiStatus
+	// devicesLoaded distinguishes "never fetched" (nil slice) from an empty list.
+	devicesLoaded  bool
+	devicesErr     error
+	devicesRefresh bool // a refetch is in flight — keep showing stale list
+	wifi           *livebox.WiFiStatus
 	guest   *livebox.GuestWiFiStatus
 	iptv    *livebox.IPTVStatus
 	phone   *livebox.PhoneStatus
@@ -106,6 +113,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.clampHelpScroll()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -152,11 +160,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case devicesMsg:
 		m.loading = ""
+		m.devicesRefresh = false
 		if msg.err != nil {
-			m.setError("devices", msg.err)
+			m.devicesErr = msg.err
+			if !livebox.IsPermissionDenied(msg.err) {
+				if m.devicesLoaded {
+					m.statusOK = false
+					m.status = "device refresh failed: " + msg.err.Error()
+				} else {
+					m.setError("devices", msg.err)
+				}
+			}
 			return m, nil
 		}
+		m.devicesErr = nil
+		if msg.devices == nil {
+			msg.devices = []livebox.Device{}
+		}
 		m.devices = msg.devices
+		m.devicesLoaded = true
 		m.statusOK = true
 		if len(m.devices) == 0 {
 			m.status = "Device list empty"
@@ -175,7 +197,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case wifiStatusMsg:
 		m.loading = ""
 		if msg.err != nil {
-			m.setError("wifi status", msg.err)
+			if !livebox.IsPermissionDenied(msg.err) {
+				m.setError("wifi status", msg.err)
+			}
 			return m, nil
 		}
 		m.wifi = msg.status
@@ -184,7 +208,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case guestWiFiMsg:
 		m.loading = ""
 		if msg.err != nil {
-			m.setError("guest wifi", msg.err)
+			if !livebox.IsPermissionDenied(msg.err) {
+				m.setError("guest wifi", msg.err)
+			}
 			return m, nil
 		}
 		m.guest = msg.status
@@ -287,10 +313,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// The rename modal is the only place where letters (including `q`)
-	// must be typeable, so route to it before the generic quit shortcut.
+	// The rename modal is the only place where letters (including `q` and `?`)
+	// must be typeable, so route to it before the generic quit/help shortcuts.
 	if m.mode == modeDeviceRename {
 		return m.handleRenameKeys(msg)
+	}
+
+	if m.showHelp {
+		return m.handleHelpKeys(key), nil
+	}
+
+	if key == "?" {
+		m.showHelp = true
+		m.helpScroll = 0
+		return m, nil
 	}
 
 	// `q` quits from anywhere else.
@@ -314,10 +350,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Refresh works from either pane.
 	if key == "r" {
+		if m.current == tabDevices || m.current == tabServices {
+			m.devicesRefresh = m.devicesLoaded
+		}
 		return m, m.refreshCurrent()
 	}
 	if key == "R" {
 		m.loading = "Refreshing everything..."
+		m.devicesRefresh = m.devicesLoaded
 		return m, m.refreshAll()
 	}
 
@@ -347,6 +387,9 @@ func (m Model) handleSidebarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.current = tabs[m.tabIdx].id
 		m.gridIdx = 0
 		m.focus = focusTab
+		if m.current == tabDevices || m.current == tabServices {
+			m.devicesRefresh = m.devicesLoaded
+		}
 		return m, m.refreshCurrent()
 	}
 	return m, nil
@@ -669,10 +712,11 @@ func (m Model) handleConfirmLogout(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ---------- refresh helpers ----------
 
 func (m Model) refreshAll() tea.Cmd {
-	return tea.Batch(
+	// Hit the router in two waves — eight parallel /ws calls (especially
+	// TopologyDiagnostics.buildTopology) can stall or time out on Funbox.
+	light := tea.Batch(
 		fetchDeviceInfo(m.client),
 		fetchWAN(m.client),
-		fetchDevices(m.client),
 		fetchWiFi(m.client),
 		fetchGuestWiFi(m.client),
 		fetchIPTV(m.client),
@@ -680,6 +724,7 @@ func (m Model) refreshAll() tea.Cmd {
 		fetchPower(m.client),
 		fetchLanguage(m.client),
 	)
+	return tea.Sequence(light, fetchDevices(m.client))
 }
 
 func (m Model) refreshCurrent() tea.Cmd {
@@ -690,13 +735,15 @@ func (m Model) refreshCurrent() tea.Cmd {
 	case tabOverview:
 		return tea.Batch(fetchDeviceInfo(m.client), fetchWAN(m.client))
 	case tabServices:
-		return tea.Batch(
+		return tea.Sequence(
+			tea.Batch(
+				fetchWAN(m.client),
+				fetchWiFi(m.client),
+				fetchGuestWiFi(m.client),
+				fetchIPTV(m.client),
+				fetchPhone(m.client),
+			),
 			fetchDevices(m.client),
-			fetchWAN(m.client),
-			fetchWiFi(m.client),
-			fetchGuestWiFi(m.client),
-			fetchIPTV(m.client),
-			fetchPhone(m.client),
 		)
 	case tabDevices:
 		return fetchDevices(m.client)
@@ -715,6 +762,9 @@ func (m Model) refreshCurrent() tea.Cmd {
 func (m Model) View() string {
 	if m.width == 0 {
 		return "starting up..."
+	}
+	if m.showHelp {
+		return m.renderHelpView()
 	}
 
 	title := titleStyle.Render(" Orange Livebox TUI ") +
@@ -779,6 +829,7 @@ func (m Model) renderSidebar() string {
 		b.WriteString(hintStyle.Render(
 			"j/k  tab up/down\n" +
 				"l    enter tab\n" +
+				"?:   help\n" +
 				"r/R  refresh\n" +
 				"q    quit",
 		))
@@ -787,6 +838,7 @@ func (m Model) renderSidebar() string {
 			"esc  back to sidebar\n" +
 				"h/j/k/l  navigate\n" +
 				"enter  activate\n" +
+				"?:   help\n" +
 				"t    toggle Wi-Fi\n" +
 				"g    toggle guest\n" +
 				"b    reboot\n" +
@@ -879,13 +931,23 @@ func (m Model) renderServiceGrid() string {
 }
 
 func (m Model) renderDevices() string {
-	if m.devices == nil {
-		return "Loading devices..."
+	if !m.devicesLoaded {
+		if m.devicesErr != nil {
+			return badStyle.Render("Could not load devices") + "\n\n" +
+				hintStyle.Render(m.devicesErr.Error()) + "\n\n" +
+				hintStyle.Render("Press r to retry")
+		}
+		return hintStyle.Render("⏳ Loading devices...")
+	}
+
+	var b strings.Builder
+	if m.devicesRefresh {
+		b.WriteString(hintStyle.Render("⏳ Refreshing device list…") + "\n\n")
 	}
 	if len(m.devices) == 0 {
-		return "No devices reported."
+		b.WriteString("No devices reported.")
+		return b.String()
 	}
-	var b strings.Builder
 	b.WriteString(sectionTitle(fmt.Sprintf("Podłączone urządzenia (%d)", len(m.devices))))
 	header := fmt.Sprintf("  %-22s %-15s %-17s %s", "Name", "IP", "MAC", "Type")
 	b.WriteString(keyStyle.Copy().Width(0).Render(header))

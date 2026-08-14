@@ -534,6 +534,16 @@ func (c *Client) call(ctx context.Context, service, method string, params map[st
 	return &out, nil
 }
 
+// IsPermissionDenied reports whether the router rejected a sysbus call because
+// the logged-in session lacks the required role (common with non-admin
+// accounts and some Funbox firmwares even after a successful login).
+func IsPermissionDenied(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "permission denied")
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

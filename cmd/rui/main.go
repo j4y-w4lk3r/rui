@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -27,6 +30,8 @@ var (
 func main() {
 	envPath := flag.String("env", "", "path to .env file with router credentials (overrides the cascade)")
 	profile := flag.String("profile", "", "load credentials from 1Password (e.g. PL → PLH2-Orange)")
+	findName := flag.String("find", "", "find a LAN device by name and print its IP (non-interactive)")
+	listDevices := flag.Bool("list-devices", false, "list all LAN devices (name, IP, MAC) and exit")
 	debug := flag.Bool("debug", false, "log every HTTP request/response to stderr (use with 2>debug.log)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
@@ -59,6 +64,22 @@ func main() {
 		os.Exit(1)
 	}
 	client.SetDebug(*debug)
+
+	if name := strings.TrimSpace(*findName); name != "" {
+		if err := runFind(client, name); err != nil {
+			fmt.Fprintln(os.Stderr, "rui: find:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if *listDevices {
+		if err := runListDevices(client); err != nil {
+			fmt.Fprintln(os.Stderr, "rui: list-devices:", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	prog := tea.NewProgram(
 		tui.New(client, cfg.Host),
@@ -124,4 +145,53 @@ func suggestedConfigPath() string {
 		return filepath.Join(home, ".config", "rui", ".env")
 	}
 	return "~/.config/rui/.env"
+}
+
+func runFind(client *livebox.Client, name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	if err := client.Login(ctx); err != nil {
+		return fmt.Errorf("login: %w", err)
+	}
+
+	device, err := livebox.FindByName(ctx, client, name)
+	if err != nil {
+		return err
+	}
+	if device.IPAddress == "" {
+		return fmt.Errorf("device %q has no IP address", name)
+	}
+	fmt.Println(device.IPAddress)
+	return nil
+}
+
+func runListDevices(client *livebox.Client) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := client.Login(ctx); err != nil {
+		return fmt.Errorf("login: %w", err)
+	}
+
+	devices, err := client.ListDevices(ctx)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("NAME\tIP\tMAC\tACTIVE")
+	for _, d := range devices {
+		active := "no"
+		if d.Active {
+			active = "yes"
+		}
+		fmt.Printf("%s\t%s\t%s\t%s\n",
+			strings.TrimSpace(d.Name),
+			strings.TrimSpace(d.IPAddress),
+			strings.TrimSpace(d.PhysAddress),
+			active,
+		)
+	}
+	fmt.Printf("--- %d device(s) ---\n", len(devices))
+	return nil
 }
