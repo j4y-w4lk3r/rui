@@ -1,0 +1,21 @@
+# Default secret scanning for new repos (copied by lg-gh-push).
+# Install: pre-commit install && pre-commit install --hook-type pre-push
+# Run manually: pre-commit run --all-files
+# Emergency skip: SKIP=gitleaks,trufflehog git commit -m "..."
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+      - id: gitleaks
+        stages: [pre-commit, pre-push]
+
+  - repo: local
+    hooks:
+      - id: trufflehog
+        name: TruffleHog
+        description: Detect and verify secrets in git data
+        entry: bash -c 'trufflehog git file://. --since-commit HEAD --results=verified,unknown --fail --trust-local-git-config'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit, pre-push]
