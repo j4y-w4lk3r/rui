@@ -19,33 +19,14 @@ type onePasswordProfile struct {
 	PasswordField string
 }
 
-// profiles is the built-in registry of -profile names → 1Password items.
-// Add new homes/locations here as you bring them online.
+// profiles is the built-in registry of legacy -profile names → 1Password items.
 var profiles = map[string]onePasswordProfile{
 	"PL": {
-		VaultID:       "g3irkmq3taou5ko6gwxwlkcjd4",
+		VaultID:       iotVaultID,
 		Item:          "PLH2-Orange",
 		UsernameField: "username",
 		PasswordField: "confirmpassword",
 	},
-}
-
-// ProfileNames returns the known profile keys for help text.
-func ProfileNames() []string {
-	out := make([]string, 0, len(profiles))
-	for name := range profiles {
-		out = append(out, name)
-	}
-	if len(out) > 1 {
-		for i := 0; i < len(out); i++ {
-			for j := i + 1; j < len(out); j++ {
-				if out[j] < out[i] {
-					out[i], out[j] = out[j], out[i]
-				}
-			}
-		}
-	}
-	return out
 }
 
 // ApplyProfile reads router credentials for name from 1Password via the `op`
@@ -54,6 +35,13 @@ func ProfileNames() []string {
 // not override existing env vars, so profile values win over any .env file.
 func ApplyProfile(name string) error {
 	key := strings.ToUpper(strings.TrimSpace(name))
+	if key == "AUTO" {
+		_, _, err := DetectAndApplyProfile()
+		return err
+	}
+	if strings.HasPrefix(key, "PLH") {
+		return ApplyLocationByID(key)
+	}
 	p, ok := profiles[key]
 	if !ok {
 		return fmt.Errorf("unknown profile %q (available: %s)", name, strings.Join(ProfileNames(), ", "))
@@ -80,6 +68,16 @@ func ApplyProfile(name string) error {
 		return err
 	}
 	return setProfileEnv("ROUTER_HOST", host)
+}
+
+// ProfileNames returns the known profile keys for help text.
+func ProfileNames() []string {
+	out := []string{"auto"}
+	out = append(out, LocationNames()...)
+	for name := range profiles {
+		out = append(out, name)
+	}
+	return out
 }
 
 func (p onePasswordProfile) opRef(field string) string {

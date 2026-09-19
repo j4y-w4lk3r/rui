@@ -441,6 +441,64 @@ func (c *Client) GetPowerProfiles(ctx context.Context) (*PowerProfileSummary, er
 	return out, nil
 }
 
+// StaticDHCPLease is one fixed/reserved DHCP assignment on the default LAN pool.
+type StaticDHCPLease struct {
+	MACAddress string `json:"MACAddress"`
+	IPAddress  string `json:"IPAddress"`
+	LeasePath  string `json:"LeasePath,omitempty"`
+}
+
+const defaultDHCPPool = "DHCPv4.Server.Pool.default"
+
+// ListStaticDHCPLeases returns reserved addresses on the default LAN pool.
+//
+// Funbox 10 exposes this via the legacy TR-181-style object
+// DHCPv4.Server.Pool.default — not via sah.HomeNetwork.DhcpServerIpv4.* (which
+// the web UI calls through a semantic layer that is absent from direct /ws).
+func (c *Client) ListStaticDHCPLeases(ctx context.Context) ([]StaticDHCPLease, error) {
+	resp, err := c.call(ctx, defaultDHCPPool, "getStaticLeases", nil)
+	if err != nil {
+		return nil, err
+	}
+	var leases []StaticDHCPLease
+	if err := json.Unmarshal(firstNonNil(resp.Status, resp.Data, resp.Result), &leases); err != nil {
+		return nil, err
+	}
+	return leases, nil
+}
+
+// AddStaticDHCPLease reserves ip for mac on the default LAN pool.
+//
+// Wire format confirmed on Funbox 10 PL (SGF10-pl-02.02.03.09):
+//
+//	service: DHCPv4.Server.Pool.default
+//	method:  addStaticLease
+//	params:  {"MACAddress":"D0:EA:11:BB:C8:59","IPAddress":"192.168.1.65"}
+func (c *Client) AddStaticDHCPLease(ctx context.Context, mac, ip string) error {
+	mac = strings.TrimSpace(mac)
+	ip = strings.TrimSpace(ip)
+	if mac == "" || ip == "" {
+		return errors.New("AddStaticDHCPLease: empty mac or ip")
+	}
+	_, err := c.call(ctx, defaultDHCPPool, "addStaticLease", map[string]any{
+		"MACAddress": mac,
+		"IPAddress":  ip,
+	})
+	return err
+}
+
+// DeleteStaticDHCPLease removes a reservation by MAC address.
+func (c *Client) DeleteStaticDHCPLease(ctx context.Context, mac string) error {
+	mac = strings.TrimSpace(mac)
+	if mac == "" {
+		return errors.New("DeleteStaticDHCPLease: empty mac")
+	}
+	_, err := c.call(ctx, defaultDHCPPool, "deleteStaticLease", map[string]any{
+		"MACAddress": mac,
+	})
+	return err
+}
+
 // RenameDevice asks the box to rename a single device. The key is the
 // device's Key field (e.g. "E0:63:DA:67:AD:78" or "lan"). The "source"
 // argument tells the box where the change came from — the web UI uses

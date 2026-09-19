@@ -29,7 +29,8 @@ var (
 
 func main() {
 	envPath := flag.String("env", "", "path to .env file with router credentials (overrides the cascade)")
-	profile := flag.String("profile", "", "load credentials from 1Password (e.g. PL → PLH2-Orange)")
+	profile := flag.String("profile", "", "load credentials from 1Password: auto, PLH1, PLH3, PL, …")
+	location := flag.String("location", "", "force site when not on WiFi: PLH1, PLH3 (same as -profile PLH3)")
 	findName := flag.String("find", "", "find a LAN device by name and print its IP (non-interactive)")
 	listDevices := flag.Bool("list-devices", false, "list all LAN devices (name, IP, MAC) and exit")
 	debug := flag.Bool("debug", false, "log every HTTP request/response to stderr (use with 2>debug.log)")
@@ -41,11 +42,9 @@ func main() {
 		return
 	}
 
-	if *profile != "" {
-		if err := config.ApplyProfile(*profile); err != nil {
-			fmt.Fprintln(os.Stderr, "rui: profile error:", err)
-			os.Exit(1)
-		}
+	if err := config.BootstrapCredentials(*profile, *location); err != nil {
+		fmt.Fprintln(os.Stderr, "rui:", err)
+		os.Exit(1)
 	}
 
 	cfg, err := config.Load(*envPath)
@@ -82,7 +81,7 @@ func main() {
 	}
 
 	prog := tea.NewProgram(
-		tui.New(client, cfg.Host),
+		tui.New(client, cfg.Host, os.Getenv("RUI_LOCATION_LABEL")),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

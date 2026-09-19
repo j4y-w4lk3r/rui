@@ -49,6 +49,10 @@ type (
 		info *livebox.LanguageInfo
 		err  error
 	}
+	staticLeasesMsg struct {
+		leases []livebox.StaticDHCPLease
+		err    error
+	}
 	actionDoneMsg struct {
 		label string
 		err   error
@@ -184,6 +188,26 @@ func fetchPower(c *livebox.Client) tea.Cmd {
 		defer cancel()
 		s, err := c.GetPowerProfiles(ctx)
 		return powerMsg{status: s, err: err}
+	}
+}
+
+func fetchStaticLeases(c *livebox.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+		defer cancel()
+		leases, err := c.ListStaticDHCPLeases(ctx)
+		return staticLeasesMsg{leases: leases, err: err}
+	}
+}
+
+func reserveDHCPCmd(c *livebox.Client, mac, ip string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+		defer cancel()
+		return actionDoneMsg{
+			label: "DHCP reserved " + ip + " for " + mac,
+			err:   c.AddStaticDHCPLease(ctx, mac, ip),
+		}
 	}
 }
 

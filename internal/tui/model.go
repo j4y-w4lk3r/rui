@@ -23,6 +23,7 @@ const (
 	modeDeviceDetail   // viewing a single device's info
 	modeDeviceRename   // text-input modal
 	modeDeviceTypePick // type picker modal
+	modeDeviceReserveIP // DHCP reservation IP input
 	modeLanguagePick   // UI language picker modal
 )
 
@@ -56,9 +57,17 @@ type Model struct {
 	showHelp   bool // full-screen ? help overlay
 	helpScroll int  // first visible line when help overflows the terminal
 
+	showErrorDialog bool
+	errorTitle      string
+	errorBody       string
+	errorHint       string
+
+	locationLabel string // e.g. "Wrocław" when auto-detected
+
 	// Per-modal state.
 	mode      editMode
 	rename    textinput.Model
+	reserveIP textinput.Model
 	typeIdx   int // type picker selection
 	editingKy string
 	langIdx   int // language picker selection
@@ -82,24 +91,32 @@ type Model struct {
 	phone   *livebox.PhoneStatus
 	power   *livebox.PowerProfileSummary
 	lang    *livebox.LanguageInfo
+	staticLeases []livebox.StaticDHCPLease
 
 	startedAt time.Time
 }
 
 // New constructs the model. Login is kicked off on Init.
-func New(client *livebox.Client, host string) Model {
+func New(client *livebox.Client, host, locationLabel string) Model {
 	ti := textinput.New()
 	ti.Placeholder = "device name"
 	ti.CharLimit = 64
 	ti.Width = 40
 
+	ri := textinput.New()
+	ri.Placeholder = "192.168.1.65"
+	ri.CharLimit = 15
+	ri.Width = 18
+
 	return Model{
-		client:    client,
-		host:      host,
-		current:   tabOverview,
+		client:        client,
+		host:          host,
+		locationLabel: locationLabel,
+		current:       tabOverview,
 		startedAt: time.Now(),
 		loading:   "Logging in...",
 		rename:    ti,
+		reserveIP: ri,
 	}
 }
 
@@ -127,6 +144,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.statusOK = false
 			m.status = "Login failed: " + msg.err.Error()
+			m.errorTitle, m.errorBody, m.errorHint = friendlyLoginError(msg.err)
+			m.showErrorDialog = true
 			return m, nil
 		}
 		m.loggedIn = true
@@ -244,6 +263,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case staticLeasesMsg:
+		m.loading = ""
+		if msg.err == nil {
+			m.staticLeases = msg.leases
+		}
+		return m, nil
+
 	case actionDoneMsg:
 		m.loading = ""
 		if msg.err != nil {
@@ -268,10 +294,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Textinput updates while in rename mode.
+	// Textinput updates while in rename / reserve modals.
 	if m.mode == modeDeviceRename {
 		var cmd tea.Cmd
 		m.rename, cmd = m.rename.Update(msg)
+		return m, cmd
+	}
+	if m.mode == modeDeviceReserveIP {
+		var cmd tea.Cmd
+		m.reserveIP, cmd = m.reserveIP.Update(msg)
 		return m, cmd
 	}
 
@@ -313,10 +344,27 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// The rename modal is the only place where letters (including `q` and `?`)
-	// must be typeable, so route to it before the generic quit/help shortcuts.
+	// The rename/reserve modals are the only places where letters (including `q`
+	// and `?`) must be typeable, so route to them before generic shortcuts.
 	if m.mode == modeDeviceRename {
 		return m.handleRenameKeys(msg)
+	}
+	if m.mode == modeDeviceReserveIP {
+		return m.handleReserveIPKeys(msg)
+	}
+
+	if m.showErrorDialog {
+		switch key {
+		case "enter", "esc", " ":
+			m.showErrorDialog = false
+			return m, nil
+		case "r", "R":
+			m.showErrorDialog = false
+			m.loading = "Logging in..."
+			m.status = ""
+			return m, loginCmd(m.client)
+		}
+		return m, nil
 	}
 
 	if m.showHelp {
@@ -342,6 +390,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmLogout(msg)
 	case modeDeviceTypePick:
 		return m.handleTypePickerKeys(msg)
+	case modeDeviceReserveIP:
+		return m.handleReserveIPKeys(msg)
 	case modeLanguagePick:
 		return m.handleLanguagePickerKeys(msg)
 	case modeDeviceDetail:
@@ -518,6 +568,7 @@ func (m Model) handleDeviceListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter", "l":
 		if m.deviceIdx >= 0 && m.deviceIdx < len(m.devices) {
 			m.mode = modeDeviceDetail
+			return m, fetchStaticLeases(m.client)
 		}
 	case "y":
 		return m.yankDeviceField(yankIP)
@@ -552,6 +603,18 @@ func (m Model) handleDeviceDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.yankDeviceField(yankIP)
 	case "Y":
 		return m.yankDeviceField(yankMAC)
+	case "r":
+		mac := deviceMAC(d)
+		if mac == "" {
+			m.statusOK = false
+			m.status = "No MAC address for this device"
+			return m, nil
+		}
+		m.editingKy = mac
+		m.reserveIP.SetValue(suggestReserveIP(d, m.staticLeases))
+		m.reserveIP.Focus()
+		m.mode = modeDeviceReserveIP
+		return m, textinput.Blink
 	}
 	return m, nil
 }
@@ -586,6 +649,33 @@ func (m Model) yankDeviceField(field yankField) (tea.Model, tea.Cmd) {
 	}
 	m.loading = "Copying " + what + " to clipboard..."
 	return m, copyToClipboardCmd(value, what)
+}
+
+func (m Model) handleReserveIPKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.reserveIP.Blur()
+		m.mode = modeDeviceDetail
+		return m, nil
+	case "enter":
+		ip := strings.TrimSpace(m.reserveIP.Value())
+		if ip == "" || m.editingKy == "" {
+			m.mode = modeDeviceDetail
+			return m, nil
+		}
+		if !isIPv4(ip) {
+			m.statusOK = false
+			m.status = "Invalid IPv4 address: " + ip
+			return m, nil
+		}
+		m.reserveIP.Blur()
+		m.mode = modeDeviceDetail
+		m.loading = "Reserving " + ip + "..."
+		return m, reserveDHCPCmd(m.client, m.editingKy, ip)
+	}
+	var cmd tea.Cmd
+	m.reserveIP, cmd = m.reserveIP.Update(msg)
+	return m, cmd
 }
 
 func (m Model) handleRenameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -746,7 +836,7 @@ func (m Model) refreshCurrent() tea.Cmd {
 			fetchDevices(m.client),
 		)
 	case tabDevices:
-		return fetchDevices(m.client)
+		return tea.Batch(fetchDevices(m.client), fetchStaticLeases(m.client))
 	case tabEko:
 		return fetchPower(m.client)
 	case tabAdvanced:
@@ -767,8 +857,19 @@ func (m Model) View() string {
 		return m.renderHelpView()
 	}
 
-	title := titleStyle.Render(" Orange Livebox TUI ") +
-		" " + hintStyle.Render(m.host)
+	body := m.renderMainView()
+	if m.showErrorDialog {
+		return m.renderErrorDialog()
+	}
+	return body
+}
+
+func (m Model) renderMainView() string {
+	title := titleStyle.Render(" Orange Livebox TUI ")
+	if m.locationLabel != "" {
+		title += " " + okStyle.Render("📍 "+m.locationLabel)
+	}
+	title += " " + hintStyle.Render(m.host)
 
 	sidebarW := 18
 	detailW := m.width - sidebarW - 4
@@ -825,26 +926,7 @@ func (m Model) renderSidebar() string {
 	}
 
 	b.WriteString("\n")
-	if m.focus == focusSidebar {
-		b.WriteString(hintStyle.Render(
-			"j/k  tab up/down\n" +
-				"l    enter tab\n" +
-				"?:   help\n" +
-				"r/R  refresh\n" +
-				"q    quit",
-		))
-	} else {
-		b.WriteString(hintStyle.Render(
-			"esc  back to sidebar\n" +
-				"h/j/k/l  navigate\n" +
-				"enter  activate\n" +
-				"?:   help\n" +
-				"t    toggle Wi-Fi\n" +
-				"g    toggle guest\n" +
-				"b    reboot\n" +
-				"r/R  refresh",
-		))
-	}
+	b.WriteString(hintStyle.Render("?  help"))
 	return b.String()
 }
 
@@ -853,7 +935,9 @@ func (m Model) renderDetail(_ int) string {
 		return m.loading
 	}
 	if !m.loggedIn {
-		return badStyle.Render("Not connected. Check .env credentials.")
+		return badStyle.Render("⚠ Not connected") + "\n\n" +
+			valStyle.Render("Login failed or credentials missing.") + "\n\n" +
+			hintStyle.Render("Use: rui -profile PLH3\nWait ~30s if router says too many attempts.\nPress r to retry.")
 	}
 
 	// Modal sub-views.
@@ -870,6 +954,8 @@ func (m Model) renderDetail(_ int) string {
 		return m.renderDeviceDetail()
 	case modeDeviceRename:
 		return m.renderRename()
+	case modeDeviceReserveIP:
+		return m.renderReserveIP()
 	case modeDeviceTypePick:
 		return m.renderTypePicker()
 	case modeLanguagePick:
@@ -926,8 +1012,7 @@ func (m Model) renderOverview() string {
 
 func (m Model) renderServiceGrid() string {
 	return sectionTitle("Usługi") +
-		renderTileGrid(m.servicesTiles(), m.gridIdx, m.tileCols(), 0) + "\n" +
-		hintStyle.Render("enter tile  •  t toggle wifi  •  g toggle guest")
+		renderTileGrid(m.servicesTiles(), m.gridIdx, m.tileCols(), 0)
 }
 
 func (m Model) renderDevices() string {
@@ -970,32 +1055,13 @@ func (m Model) renderDevices() string {
 	}
 	for i := start; i < end; i++ {
 		d := m.devices[i]
-		name := d.Name
-		if name == "" {
-			name = "(unknown)"
-		}
-		name = truncStr(name, 22)
 		marker := "○"
 		if d.Active {
 			marker = "●"
 		}
-		row := fmt.Sprintf("%s %-22s %-15s %-17s %s",
-			marker, name, d.IPAddress, d.PhysAddress, d.DeviceType)
-		if i == m.deviceIdx {
-			row = menuItemSel.Render("▸ " + row)
-		} else {
-			row = "  " + row
-			if !d.Active {
-				row = hintStyle.Render(row)
-			}
-		}
-		b.WriteString(row)
+		b.WriteString(deviceRow(marker, d.Name, d.IPAddress, d.PhysAddress, d.DeviceType, i == m.deviceIdx, d.Active))
 		b.WriteString("\n")
 	}
-	b.WriteString("\n")
-	b.WriteString(hintStyle.Render(
-		"enter — open device  •  ↑/↓ navigate  •  y — copy IP  •  Y — copy MAC",
-	))
 	return b.String()
 }
 
@@ -1013,8 +1079,11 @@ func (m Model) renderDeviceDetail() string {
 	b.WriteString(sectionTitle("Personalizuj urządzenie"))
 	b.WriteString(kv("Name", name))
 	b.WriteString(kv("Type", d.DeviceType))
-	b.WriteString(kv("IP", d.IPAddress))
+	b.WriteString(kv("IP", formatDeviceIP(d.IPAddress)))
 	b.WriteString(kv("MAC", d.PhysAddress))
+	if ip := findStaticLeaseIP(m.staticLeases, deviceMAC(d)); ip != "" {
+		b.WriteString(kv("DHCP reserved", ip))
+	}
 	b.WriteString(kv("Interface", d.Layer2Iface))
 	b.WriteString(kv("Active", boolText(d.Active)))
 	b.WriteString(kv("Last seen", d.LastConnect))
@@ -1022,6 +1091,7 @@ func (m Model) renderDeviceDetail() string {
 	b.WriteString(hintStyle.Render(
 		"e — rename\n" +
 			"T — change type\n" +
+			"r — reserve DHCP IP\n" +
 			"y — copy IP    Y — copy MAC\n" +
 			"esc — back",
 	))
@@ -1041,6 +1111,25 @@ func (m Model) renderRename() string {
 	b.WriteString(m.rename.View())
 	b.WriteString("\n\n")
 	b.WriteString(hintStyle.Render("enter — save   •   esc — cancel"))
+	return b.String()
+}
+
+func (m Model) renderReserveIP() string {
+	if m.deviceIdx < 0 || m.deviceIdx >= len(m.devices) {
+		return "no device"
+	}
+	d := m.devices[m.deviceIdx]
+	var b strings.Builder
+	b.WriteString(sectionTitle("Reserve DHCP IP"))
+	b.WriteString(kv("Device", d.Name))
+	b.WriteString(kv("MAC", deviceMAC(d)))
+	if ip := findStaticLeaseIP(m.staticLeases, deviceMAC(d)); ip != "" {
+		b.WriteString(kv("Current", ip+" (will update)"))
+	}
+	b.WriteString("\n")
+	b.WriteString(m.reserveIP.View())
+	b.WriteString("\n\n")
+	b.WriteString(hintStyle.Render("enter — save reservation   •   esc — cancel"))
 	return b.String()
 }
 

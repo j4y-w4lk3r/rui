@@ -60,3 +60,49 @@ mirrors the cookies the UI's JavaScript sets client-side
 
 mitmproxy is also the only way to read response bodies from chunked /ws
 calls — `chromedp` couldn't capture those.
+
+## Capturing DHCP reservation API (follow-up)
+
+The Livebox web UI uses sysbus calls that are not documented in our probe
+list yet (`Hosts.getReservedAddresses` returns NOT_FOUND on PLH3 firmware).
+To discover the real method + JSON params:
+
+1. Install mitmproxy if needed (`pip install mitmproxy` or your distro package).
+
+2. Start the reverse proxy from the **rui repo root** (same machine that can
+   reach `192.168.1.1`):
+
+```bash
+cd ~/px/x-j4y/rui
+mitmdump --mode reverse:http://192.168.1.1 --listen-port 8888 -s ./cmd/mitm/dump.py
+```
+
+3. Open **http://127.0.0.1:8888/** in a browser, log in as admin.
+
+4. Navigate to the device you want to reserve (e.g. NAS on `eth4`,
+   MAC `D0:EA:11:BB:C8:59`) and create a **DHCP reservation** / fixed IP
+   (e.g. `192.168.1.65`). Confirm/save in the UI.
+
+5. Ctrl+C the mitmdump terminal. Three files appear in the cwd:
+   `mitm-<ts>.jsonl`, `mitm-<ts>.log`, `mitm-<ts>.summary.md`.
+
+6. Find the reservation call:
+
+```bash
+rg -i 'reserve|dhcp|192\.168\.1\.65|D0:EA:11' mitm-*.jsonl mitm-*.summary.md
+```
+
+Look for POSTs to `/ws` or `/api/` with JSON like
+`{"service":"…","method":"…","parameters":{…}}`. That triple goes into
+`internal/livebox/` as `ReserveDHCP(mac, ip)` (or whatever the UI uses).
+
+7. Verify with probe before wiring the TUI:
+
+```bash
+rui -profile PLH3   # or your site
+go run ./cmd/probe -- <Service> <Method> '<json-params>'
+```
+
+This is exactly how we found the **session-cookie bug** — browse the real UI
+through mitm, grep the capture, implement in Go.
+

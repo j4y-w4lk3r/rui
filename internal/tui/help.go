@@ -13,6 +13,16 @@ type helpSection struct {
 func helpSections() []helpSection {
 	return []helpSection{
 		{
+			title: "Locations (1Password)",
+			lines: []string{
+				"Run: rui -profile PLH3   (Wrocław)",
+				"     rui -profile PLH1   (Warsaw)",
+				"     rui -profile auto   (pick via WiFi SSID)",
+				"On Ethernet: always use -profile PLH3 or -location PLH3",
+				"Plain rui may fall back to stale ~/.config/rui/.env",
+			},
+		},
+		{
 			title: "Global",
 			lines: []string{
 				"?          Toggle this help screen",
@@ -63,6 +73,7 @@ func helpSections() []helpSection {
 			lines: []string{
 				"e          Rename device (text input modal)",
 				"T          Change device type (picker modal)",
+				"r          Reserve fixed DHCP IP (input modal)",
 				"y          Copy IP to clipboard",
 				"Y          Copy MAC to clipboard",
 				"esc / h    Back to device list",
@@ -72,6 +83,14 @@ func helpSections() []helpSection {
 			title: "Rename modal",
 			lines: []string{
 				"Type the new name, then Enter to save",
+				"esc        Cancel and return to device detail",
+			},
+		},
+		{
+			title: "DHCP reserve modal",
+			lines: []string{
+				"Type the IPv4 address to reserve for this device's MAC",
+				"enter      Save reservation on the router",
 				"esc        Cancel and return to device detail",
 			},
 		},

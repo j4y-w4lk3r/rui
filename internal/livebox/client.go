@@ -318,6 +318,7 @@ type apiError struct {
 	Error       int    `json:"error"`
 	Description string `json:"description"`
 	Info        string `json:"info"`
+	WaitTime    int    `json:"waittime"`
 }
 
 // Login authenticates against the box and stores the session context.
@@ -395,6 +396,9 @@ func (c *Client) loginAs(ctx context.Context, appName string) error {
 	c.logf("← HTTP %d %s\n", resp.StatusCode, truncate(string(raw), 400))
 
 	if resp.StatusCode != http.StatusOK {
+		if msg := loginFailureMessage(raw, resp.StatusCode); msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
 		return fmt.Errorf("login HTTP %d: %s", resp.StatusCode, truncate(string(raw), 200))
 	}
 
@@ -410,7 +414,9 @@ func (c *Client) loginAs(ctx context.Context, appName string) error {
 		return fmt.Errorf("decode login: %w (body=%s)", err, truncate(string(raw), 200))
 	}
 	if len(parsed.Errors) > 0 {
-		return fmt.Errorf("login rejected: %s", parsed.Errors[0].Description)
+		if msg := formatAPIErrors(parsed.Errors); msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
 	}
 	if parsed.Data.ContextID == "" {
 		return fmt.Errorf("login: missing contextID (body=%s)", truncate(string(raw), 200))
@@ -431,10 +437,43 @@ func isCredentialError(err error) bool {
 		return false
 	}
 	s := strings.ToLower(err.Error())
+	if strings.Contains(s, "failed login attempts") || (strings.Contains(s, "wait ") && strings.Contains(s, "attempts")) {
+		return true
+	}
 	return strings.Contains(s, "invalid") ||
 		strings.Contains(s, "wrong") ||
 		strings.Contains(s, "credential") ||
 		strings.Contains(s, "password")
+}
+
+func formatAPIErrors(errs []apiError) string {
+	if len(errs) == 0 {
+		return ""
+	}
+	e := errs[0]
+	if e.WaitTime > 0 {
+		return fmt.Sprintf("too many failed login attempts — wait %ds, then use: rui -profile PLH3", e.WaitTime)
+	}
+	if e.Description != "" {
+		return e.Description
+	}
+	return fmt.Sprintf("login error %d", e.Error)
+}
+
+func loginFailureMessage(raw []byte, status int) string {
+	var parsed struct {
+		Errors []apiError `json:"errors"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return ""
+	}
+	if msg := formatAPIErrors(parsed.Errors); msg != "" {
+		return msg
+	}
+	if status == http.StatusUnauthorized {
+		return "login rejected (HTTP 401) — check password or wait if the router locked you out"
+	}
+	return ""
 }
 
 func (c *Client) logf(format string, args ...any) {
