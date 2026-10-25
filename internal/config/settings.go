@@ -158,7 +158,7 @@ func BootstrapCredentials(flagProfile, flagLocation string) error {
 		if err := ApplyProfile(prof); err != nil {
 			if fromSaved {
 				fmt.Fprintf(os.Stderr, "rui: saved default profile %s failed: %v\n", prof, err)
-				fmt.Fprintln(os.Stderr, "rui: tip: run  rui -profile PLH3  to refresh from 1Password")
+				fmt.Fprintln(os.Stderr, "rui: tip: run  rui -profile PLH3  to refresh from OpenBao or 1Password")
 			} else {
 				return fmt.Errorf("profile %s: %w", prof, err)
 			}
@@ -173,7 +173,7 @@ func BootstrapCredentials(flagProfile, flagLocation string) error {
 					fmt.Fprintf(os.Stderr, "rui: profile %s saved as default; synced → %s\n", prof, p)
 				}
 			} else {
-				fmt.Fprintf(os.Stderr, "rui: default profile %s (1Password)\n", prof)
+				fmt.Fprintf(os.Stderr, "rui: default profile %s\n", prof)
 				_ = syncEnvQuiet()
 			}
 			return nil

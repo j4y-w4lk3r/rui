@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/j4y-w4lk3r/rui/internal/openbao"
 )
 
 const iotVaultID = "g3irkmq3taou5ko6gwxwlkcjd4"
@@ -85,26 +87,36 @@ func DetectLocation() (Location, string, error) {
 	return Location{}, ssid, fmt.Errorf("unknown location for WiFi %q (known: %s)", ssid, strings.Join(locationSummary(), "; "))
 }
 
-// ApplyLocation loads router credentials for loc from 1Password.
+// ApplyLocation loads router credentials for loc from OpenBao, or from
+// 1Password when the OpenBao token file is not present.
 func ApplyLocation(loc Location) error {
-	p := onePasswordProfile{
-		VaultID:       iotVaultID,
-		Item:          loc.Item,
-		UsernameField: loc.UsernameField,
-		PasswordField: loc.PasswordField,
-	}
-
-	username, err := opRead(p.opRef(p.UsernameField))
-	if err != nil {
-		return fmt.Errorf("%s: read username: %w", loc.ID, err)
-	}
-	password, err := opRead(p.opRef(p.PasswordField))
-	if err != nil {
-		return fmt.Errorf("%s: read password: %w", loc.ID, err)
-	}
-	host, err := opItemHost(loc.Item)
-	if err != nil {
-		return fmt.Errorf("%s: read host: %w", loc.ID, err)
+	var username, password, host string
+	if openbao.Configured() {
+		item, err := openbao.Read(loc.ID)
+		if err != nil {
+			return fmt.Errorf("%s: %w", loc.ID, err)
+		}
+		username, password, host = item.User, item.Pass, item.Host
+	} else {
+		p := onePasswordProfile{
+			VaultID:       iotVaultID,
+			Item:          loc.Item,
+			UsernameField: loc.UsernameField,
+			PasswordField: loc.PasswordField,
+		}
+		var err error
+		username, err = opRead(p.opRef(p.UsernameField))
+		if err != nil {
+			return fmt.Errorf("%s: read username: %w", loc.ID, err)
+		}
+		password, err = opRead(p.opRef(p.PasswordField))
+		if err != nil {
+			return fmt.Errorf("%s: read password: %w", loc.ID, err)
+		}
+		host, err = opItemHost(loc.Item)
+		if err != nil {
+			return fmt.Errorf("%s: read host: %w", loc.ID, err)
+		}
 	}
 
 	if err := setProfileEnv("username", username); err != nil {
@@ -149,7 +161,11 @@ func ApplyLocationByID(id string) error {
 
 func (loc Location) wifiFingerprints() []string {
 	out := append([]string{}, loc.WiFiSSIDs...)
-	if loc.WiFiItem != "" {
+	if openbao.Configured() {
+		if item, err := openbao.Read(loc.ID); err == nil && item.WiFiSSID != "" {
+			out = append(out, item.WiFiSSID)
+		}
+	} else if loc.WiFiItem != "" {
 		if ssid, err := opRead(fmt.Sprintf("op://%s/%s/username", iotVaultID, loc.WiFiItem)); err == nil && ssid != "" {
 			out = append(out, ssid)
 		}
