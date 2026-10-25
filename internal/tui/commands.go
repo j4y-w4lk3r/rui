@@ -12,7 +12,10 @@ import (
 
 // Message types pushed back into Update by the various tea.Cmd helpers.
 type (
-	loginDoneMsg  struct{ err error }
+	loginDoneMsg struct {
+		err error
+		gen int
+	}
 	deviceInfoMsg struct {
 		info *livebox.DeviceInfo
 		err  error
@@ -70,11 +73,11 @@ type (
 const callTimeout = 8 * time.Second
 const devicesTimeout = 25 * time.Second
 
-func loginCmd(c *livebox.Client) tea.Cmd {
+func loginCmd(c *livebox.Client, gen int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
 		defer cancel()
-		return loginDoneMsg{err: c.Login(ctx)}
+		return loginDoneMsg{err: c.Login(ctx), gen: gen}
 	}
 }
 

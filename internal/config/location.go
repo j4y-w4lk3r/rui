@@ -56,9 +56,18 @@ var locations = []Location{
 // LocationNames returns active location IDs for help text.
 func LocationNames() []string {
 	var out []string
+	for _, loc := range ActiveLocations() {
+		out = append(out, loc.ID)
+	}
+	return out
+}
+
+// ActiveLocations returns the sites the TUI can switch to.
+func ActiveLocations() []Location {
+	var out []Location
 	for _, loc := range locations {
 		if loc.Active {
-			out = append(out, loc.ID)
+			out = append(out, loc)
 		}
 	}
 	return out
