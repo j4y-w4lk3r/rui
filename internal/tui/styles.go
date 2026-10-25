@@ -2,68 +2,124 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Orange brand-ish palette.
+// Catppuccin Mocha palette, same family as ttcli.
+// Pad styles leave the terminal background alone so the theme shows through.
 var (
-	colorOrange = lipgloss.Color("#FF7900")
-	colorDim    = lipgloss.Color("240")
-	colorOK     = lipgloss.Color("42")
-	colorBad    = lipgloss.Color("196")
-	colorBg     = lipgloss.Color("236")
+	colorBase    = lipgloss.Color("#1e1e2e")
+	colorOverlay = lipgloss.Color("#45475a")
+	colorText    = lipgloss.Color("#cdd6f4")
+	colorSubtext = lipgloss.Color("#a6adc8")
+	colorMuted   = lipgloss.Color("#6c7086")
+	colorMauve   = lipgloss.Color("#cba6f7")
+	colorBlue    = lipgloss.Color("#89b4fa")
+	colorGreen   = lipgloss.Color("#a6e3a1")
+	colorYellow  = lipgloss.Color("#f9e2af")
+	colorPeach   = lipgloss.Color("#fab387")
+	colorRed     = lipgloss.Color("#f38ba8")
+	colorTeal    = lipgloss.Color("#94e2d5")
+
+	// Names still used by older call sites.
+	colorOrange = colorPeach
+	colorDim    = colorMuted
+	colorOK     = colorGreen
+	colorBad    = colorRed
 )
 
 var (
+	rowPadStyle = lipgloss.NewStyle()
+
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("0")).
-			Background(colorOrange).
-			Padding(0, 1)
+			Foreground(colorText)
 
-	statusBarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("250")).
-			Background(colorBg).
-			Padding(0, 1)
+	headerStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(colorBlue)
 
-	// paneFocused: the pane the user's keys currently affect — orange border.
-	paneFocused = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorOrange).
-			Padding(0, 1)
+	headerBrandStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(colorText)
 
-	// paneBlurred: the other pane — dim grey border so the focused side is
-	// visually unambiguous.
-	paneBlurred = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorDim).
-			Padding(0, 1)
+	headerSubStyle = lipgloss.NewStyle().
+			Foreground(colorMuted)
 
-	menuItemStyle = lipgloss.NewStyle().Padding(0, 1)
-	menuItemSel   = lipgloss.NewStyle().
-			Padding(0, 1).
-			Foreground(lipgloss.Color("0")).
-			Background(colorOrange).
+	locationStyle = lipgloss.NewStyle().
+			Foreground(colorPeach).
 			Bold(true)
 
-	keyStyle = lipgloss.NewStyle().Foreground(colorDim).Width(18)
-	valStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	statusBarStyle = lipgloss.NewStyle().
+			Foreground(colorSubtext)
 
-	okStyle   = lipgloss.NewStyle().Foreground(colorOK).Bold(true)
-	badStyle  = lipgloss.NewStyle().Foreground(colorBad).Bold(true)
-	hintStyle = lipgloss.NewStyle().Foreground(colorDim).Italic(true)
+	paneBlurred = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorOverlay).
+			Padding(0, 1)
 
-	// Funbox-style "tile" — a small rectangle showing a label, an icon and
-	// a colored status line.
+	paneFocused = paneBlurred.BorderForeground(colorMauve)
+
+	menuItemStyle = lipgloss.NewStyle().
+			Foreground(colorText).
+			Padding(0, 1)
+
+	menuItemSel = lipgloss.NewStyle().
+			Padding(0, 1).
+			Foreground(colorBase).
+			Background(colorMauve).
+			Bold(true)
+
+	keyStyle = lipgloss.NewStyle().Foreground(colorMuted).Width(16)
+	valStyle = lipgloss.NewStyle().Foreground(colorText)
+
+	okStyle   = lipgloss.NewStyle().Foreground(colorGreen).Bold(true)
+	badStyle  = lipgloss.NewStyle().Foreground(colorRed).Bold(true)
+	hintStyle = lipgloss.NewStyle().Foreground(colorMuted)
+
 	tileBase = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorDim).
+			BorderForeground(colorOverlay).
 			Padding(0, 1).
 			Width(18).
 			Height(4)
-	tileSel = tileBase.Copy().
-		BorderForeground(colorOrange).
+	tileSel = tileBase.
+		BorderForeground(colorMauve).
 		Bold(true)
 
-	tileTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
-	tileOkStyle    = lipgloss.NewStyle().Foreground(colorOK)
-	tileBadStyle   = lipgloss.NewStyle().Foreground(colorBad)
-	tileDimStyle   = lipgloss.NewStyle().Foreground(colorDim)
+	tileTitleStyle = lipgloss.NewStyle().Foreground(colorText).Bold(true)
+	tileOkStyle    = lipgloss.NewStyle().Foreground(colorGreen)
+	tileBadStyle   = lipgloss.NewStyle().Foreground(colorRed)
+	tileDimStyle   = lipgloss.NewStyle().Foreground(colorMuted)
+
+	helpBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorMauve).
+			Padding(1, 2)
+
+	helpMarkerStyle = rowPadStyle
+
+	helpKeyStyle = lipgloss.NewStyle().
+			Foreground(colorPeach).
+			Bold(true)
+
+	helpDescStyle = lipgloss.NewStyle().
+			Foreground(colorSubtext)
+
+	helpTitleInBoxStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(colorBlue)
+
+	helpHintInBoxStyle = lipgloss.NewStyle().
+				Foreground(colorMuted)
+
+	helpSearchStyle = lipgloss.NewStyle().
+			Foreground(colorTeal).
+			Bold(true)
+
+	helpMatchStyle = lipgloss.NewStyle().
+			Foreground(colorYellow).
+			Bold(true)
+
+	helpSelStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(colorBase).
+			Background(colorMauve)
 )
