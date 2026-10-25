@@ -31,6 +31,8 @@ func main() {
 	envPath := flag.String("env", "", "path to .env file with router credentials (overrides the cascade)")
 	profile := flag.String("profile", "", "load credentials from 1Password: auto, PLH1, PLH3, PL, …")
 	location := flag.String("location", "", "force site when not on WiFi: PLH1, PLH3 (same as -profile PLH3)")
+	hostOverride := flag.String("host", "", "router address for Host/Origin (overrides 1Password / .env)")
+	dialAddr := flag.String("dial", "", "TCP address to connect to instead of -host (host:port), for an SSH tunnel")
 	findName := flag.String("find", "", "find a LAN device by name and print its IP (non-interactive)")
 	listDevices := flag.Bool("list-devices", false, "list all LAN devices (name, IP, MAC) and exit")
 	debug := flag.Bool("debug", false, "log every HTTP request/response to stderr (use with 2>debug.log)")
@@ -57,12 +59,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	if h := strings.TrimSpace(*hostOverride); h != "" {
+		cfg.Host = h
+	}
+
 	client, err := livebox.New(cfg.Host, cfg.Username, cfg.Password)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "rui: client error:", err)
 		os.Exit(1)
 	}
 	client.SetDebug(*debug)
+	if err := client.SetDial(strings.TrimSpace(*dialAddr)); err != nil {
+		fmt.Fprintln(os.Stderr, "rui:", err)
+		os.Exit(1)
+	}
 
 	if name := strings.TrimSpace(*findName); name != "" {
 		if err := runFind(client, name); err != nil {

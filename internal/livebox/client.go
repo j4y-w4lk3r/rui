@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -259,6 +260,28 @@ func (c *Client) Username() string { return c.username }
 
 // SetDebug toggles request/response logging on stderr.
 func (c *Client) SetDebug(on bool) { c.debug = on }
+
+// SetDial sends every request to addr (host:port) while leaving the URL,
+// Host, Origin, and Referer on the router address from New.
+// The Funbox closes the connection when Host is not its own LAN address,
+// which is what an SSH local forward (127.0.0.1:port) would otherwise send.
+func (c *Client) SetDial(addr string) error {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return nil
+	}
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		return fmt.Errorf("dial address %q: %w", addr, err)
+	}
+	tr := &http.Transport{
+		Proxy: nil,
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, addr)
+		},
+	}
+	c.http.Transport = tr
+	return nil
+}
 
 // New constructs a Livebox client. host can be an IP, hostname or full URL.
 func New(host, username, password string) (*Client, error) {

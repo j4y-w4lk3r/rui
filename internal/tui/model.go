@@ -20,11 +20,11 @@ const (
 	modeNormal editMode = iota
 	modeConfirmReboot
 	modeConfirmLogout
-	modeDeviceDetail   // viewing a single device's info
-	modeDeviceRename   // text-input modal
-	modeDeviceTypePick // type picker modal
+	modeDeviceDetail    // viewing a single device's info
+	modeDeviceRename    // text-input modal
+	modeDeviceTypePick  // type picker modal
 	modeDeviceReserveIP // DHCP reservation IP input
-	modeLanguagePick   // UI language picker modal
+	modeLanguagePick    // UI language picker modal
 )
 
 // focusMode tracks which pane currently receives navigation keys. The two
@@ -54,8 +54,9 @@ type Model struct {
 	gridIdx   int // service/eko/etc. tile selection
 	deviceIdx int // devices list selection
 
-	showHelp   bool // full-screen ? help overlay
-	helpScroll int  // first visible line when help overflows the terminal
+	showHelp   bool   // ? help overlay
+	helpFilter string // typed search inside help
+	helpCursor int    // selected navigable row inside the filtered help list
 
 	showErrorDialog bool
 	errorTitle      string
@@ -86,14 +87,12 @@ type Model struct {
 	devicesErr     error
 	devicesRefresh bool // a refetch is in flight — keep showing stale list
 	wifi           *livebox.WiFiStatus
-	guest   *livebox.GuestWiFiStatus
-	iptv    *livebox.IPTVStatus
-	phone   *livebox.PhoneStatus
-	power   *livebox.PowerProfileSummary
-	lang    *livebox.LanguageInfo
-	staticLeases []livebox.StaticDHCPLease
-
-	startedAt time.Time
+	guest          *livebox.GuestWiFiStatus
+	iptv           *livebox.IPTVStatus
+	phone          *livebox.PhoneStatus
+	power          *livebox.PowerProfileSummary
+	lang           *livebox.LanguageInfo
+	staticLeases   []livebox.StaticDHCPLease
 }
 
 // New constructs the model. Login is kicked off on Init.
@@ -113,15 +112,14 @@ func New(client *livebox.Client, host, locationLabel string) Model {
 		host:          host,
 		locationLabel: locationLabel,
 		current:       tabOverview,
-		startedAt: time.Now(),
-		loading:   "Logging in...",
-		rename:    ti,
-		reserveIP: ri,
+		loading:       "Logging in...",
+		rename:        ti,
+		reserveIP:     ri,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(loginCmd(m.client), tickEvery(time.Second))
+	return loginCmd(m.client)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -130,14 +128,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.clampHelpScroll()
 		return m, nil
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
-
-	case tickMsg:
-		return m, tickEvery(time.Second)
 
 	case loginDoneMsg:
 		m.loading = ""
@@ -198,11 +192,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.devices = msg.devices
 		m.devicesLoaded = true
-		m.statusOK = true
-		if len(m.devices) == 0 {
-			m.status = "Device list empty"
-		} else {
-			m.status = fmt.Sprintf("Loaded %d devices", len(m.devices))
+		if strings.HasPrefix(m.status, "Loaded ") ||
+			strings.HasPrefix(m.status, "Connected to ") ||
+			m.status == "Device list empty" ||
+			strings.HasPrefix(m.status, "device refresh failed") {
+			m.status = ""
 		}
 		// Keep selection in range.
 		if m.deviceIdx >= len(m.devices) {
@@ -321,11 +315,15 @@ func (m *Model) setError(what string, err error) {
 //   focusSidebar (default):
 //     j/k or ↑/↓   move between tabs
 //     l or enter   "open" the current tab → switch to focusTab
+//     h            already on the left pane
 //     q / ctrl+c   quit
 //     r / R        refresh
 //
 //   focusTab:
-//     h/j/k/l      navigate inside the tab (grid or list)
+//     h            focus the left pane
+//     ←            move left in a tile grid; the left edge focuses the sidebar
+//     l or →       move right inside a tile grid; on the device list, open the row
+//     j/k          navigate inside the tab
 //     enter        activate the current tile / open the current device
 //     esc          one level back:
 //                    rename modal  → detail view
@@ -368,12 +366,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.showHelp {
-		return m.handleHelpKeys(key), nil
+		return m.updateHelp(msg)
 	}
 
 	if key == "?" {
 		m.showHelp = true
-		m.helpScroll = 0
+		m.helpCursor = 0
+		m.helpFilter = ""
 		return m, nil
 	}
 
@@ -465,10 +464,15 @@ func (m Model) handleGridKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.focus = focusSidebar
-	case "h", "left":
-		if m.gridIdx > 0 {
-			m.gridIdx--
+	case "h":
+		m.focus = focusSidebar
+	case "left":
+		// Arrow still walks tiles; the left edge drops into the sidebar.
+		if len(tiles) == 0 || m.gridIdx%cols == 0 {
+			m.focus = focusSidebar
+			return m, nil
 		}
+		m.gridIdx--
 	case "l", "right":
 		if m.gridIdx < len(tiles)-1 {
 			m.gridIdx++
@@ -549,7 +553,7 @@ func (m Model) activateTile(t tile) (tea.Model, tea.Cmd) {
 // user can paste it straight into ssh, ping, mitmproxy, etc.
 func (m Model) handleDeviceListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc":
+	case "esc", "h", "left":
 		m.focus = focusSidebar
 	case "up", "k":
 		if m.deviceIdx > 0 {
@@ -854,7 +858,7 @@ func (m Model) View() string {
 		return "starting up..."
 	}
 	if m.showHelp {
-		return m.renderHelpView()
+		return m.renderHelpOverlay()
 	}
 
 	body := m.renderMainView()
@@ -864,19 +868,31 @@ func (m Model) View() string {
 	return body
 }
 
-func (m Model) renderMainView() string {
-	title := titleStyle.Render(" Orange Livebox TUI ")
+func (m Model) renderHeader() string {
+	parts := []string{headerBrandStyle.Render("rui")}
 	if m.locationLabel != "" {
-		title += " " + okStyle.Render("📍 "+m.locationLabel)
+		parts = append(parts, locationStyle.Render(iconPin+" "+m.locationLabel))
 	}
-	title += " " + hintStyle.Render(m.host)
+	if m.host != "" {
+		parts = append(parts, headerSubStyle.Render(m.host))
+	}
+	return fillBarRow(strings.Join(parts, "  "), m.width, rowPadStyle)
+}
+
+func (m Model) renderMainView() string {
+	title := m.renderHeader()
 
 	sidebarW := 18
 	detailW := m.width - sidebarW - 4
 	if detailW < 20 {
 		detailW = 20
 	}
-	bodyH := m.height - 4
+	status := m.renderStatus()
+	extra := 1
+	if status != "" {
+		extra++
+	}
+	bodyH := m.height - extra - 2
 	if bodyH < 6 {
 		bodyH = 6
 	}
@@ -893,19 +909,19 @@ func (m Model) renderMainView() string {
 	detail := detailBox.Width(detailW).Height(bodyH).Render(m.renderDetail(detailW - 2))
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, detail)
-	status := m.renderStatus()
-
+	if status == "" {
+		return lipgloss.JoinVertical(lipgloss.Left, title, body)
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, title, body, status)
 }
 
 func (m Model) renderSidebar() string {
 	var b strings.Builder
 
-	// Focus label so it's obvious at a glance which pane gets keys.
 	if m.focus == focusSidebar {
-		b.WriteString(okStyle.Render("◆ sidebar") + "\n\n")
+		b.WriteString(headerStyle.Render("Menu") + "\n\n")
 	} else {
-		b.WriteString(hintStyle.Render("◇ sidebar") + "\n\n")
+		b.WriteString(hintStyle.Render("Menu") + "\n\n")
 	}
 
 	for i, it := range tabs {
@@ -926,7 +942,7 @@ func (m Model) renderSidebar() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(hintStyle.Render("?  help"))
+	b.WriteString(hintStyle.Render(iconHelp + "  help"))
 	return b.String()
 }
 
@@ -935,7 +951,7 @@ func (m Model) renderDetail(_ int) string {
 		return m.loading
 	}
 	if !m.loggedIn {
-		return badStyle.Render("⚠ Not connected") + "\n\n" +
+		return badStyle.Render(iconAlert+"  Not connected") + "\n\n" +
 			valStyle.Render("Login failed or credentials missing.") + "\n\n" +
 			hintStyle.Render("Use: rui -profile PLH3\nWait ~30s if router says too many attempts.\nPress r to retry.")
 	}
@@ -1022,20 +1038,20 @@ func (m Model) renderDevices() string {
 				hintStyle.Render(m.devicesErr.Error()) + "\n\n" +
 				hintStyle.Render("Press r to retry")
 		}
-		return hintStyle.Render("⏳ Loading devices...")
+		return hintStyle.Render(iconRefresh + "  Loading devices…")
 	}
 
 	var b strings.Builder
 	if m.devicesRefresh {
-		b.WriteString(hintStyle.Render("⏳ Refreshing device list…") + "\n\n")
+		b.WriteString(hintStyle.Render(iconRefresh+"  Refreshing device list…") + "\n\n")
 	}
 	if len(m.devices) == 0 {
 		b.WriteString("No devices reported.")
 		return b.String()
 	}
-	b.WriteString(sectionTitle(fmt.Sprintf("Podłączone urządzenia (%d)", len(m.devices))))
+	b.WriteString(sectionTitle("Podłączone urządzenia"))
 	header := fmt.Sprintf("  %-22s %-15s %-17s %s", "Name", "IP", "MAC", "Type")
-	b.WriteString(keyStyle.Copy().Width(0).Render(header))
+	b.WriteString(hintStyle.Render(header))
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("─", 70))
 	b.WriteString("\n")
@@ -1243,24 +1259,19 @@ func languageLabel(code string) string {
 }
 
 func (m Model) renderStatus() string {
+	if m.loading == "" && m.status == "" {
+		return ""
+	}
 	var left string
 	switch {
 	case m.loading != "":
-		left = hintStyle.Render("⏳ " + m.loading)
-	case m.status == "":
-		left = hintStyle.Render("idle")
+		left = hintStyle.Render(iconRefresh + "  " + m.loading)
 	case m.statusOK:
-		left = okStyle.Render("✓ ") + m.status
+		left = okStyle.Render(iconCheck+"  ") + valStyle.Render(m.status)
 	default:
-		left = badStyle.Render("✗ ") + m.status
+		left = badStyle.Render(iconAlert+"  ") + valStyle.Render(m.status)
 	}
-	right := hintStyle.Render(fmt.Sprintf("session %s", time.Since(m.startedAt).Truncate(time.Second)))
-
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
-	if gap < 1 {
-		gap = 1
-	}
-	return statusBarStyle.Width(m.width).Render(left + strings.Repeat(" ", gap) + right)
+	return fillBarRow(left, m.width, statusBarStyle)
 }
 
 // ---------- per-tab tile helpers ----------
@@ -1358,5 +1369,5 @@ func truncStr(s string, n int) string {
 }
 
 func sectionTitle(s string) string {
-	return titleStyle.Copy().Background(colorBg).Foreground(colorOrange).Render(s) + "\n\n"
+	return headerStyle.Render(s) + "\n\n"
 }

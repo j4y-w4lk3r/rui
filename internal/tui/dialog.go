@@ -54,7 +54,7 @@ func (m Model) renderErrorDialog() string {
 		return ""
 	}
 
-	icon := badStyle.Render("✗ ")
+	icon := badStyle.Render(iconAlert + "  ")
 	title := badStyle.Render(m.errorTitle)
 	body := valStyle.Render(m.errorBody)
 	hint := hintStyle.Render(m.errorHint)
@@ -79,20 +79,11 @@ func (m Model) renderErrorDialog() string {
 	}
 
 	box := lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
+		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorBad).
 		Padding(1, 2).
 		Width(boxW).
 		Render(inner)
 
-	bg := lipgloss.NewStyle().
-		Width(m.width).
-		Height(m.height).
-		Background(lipgloss.Color("235"))
-
-	return lipgloss.Place(
-		m.width, m.height,
-		lipgloss.Center, lipgloss.Center,
-		bg.Render(box),
-	)
+	return centerBoxOnPlainScreen(box, m.width, m.height)
 }

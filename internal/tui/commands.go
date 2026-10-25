@@ -12,8 +12,8 @@ import (
 
 // Message types pushed back into Update by the various tea.Cmd helpers.
 type (
-	loginDoneMsg   struct{ err error }
-	deviceInfoMsg  struct {
+	loginDoneMsg  struct{ err error }
+	deviceInfoMsg struct {
 		info *livebox.DeviceInfo
 		err  error
 	}
@@ -65,7 +65,6 @@ type (
 		label string
 		err   error
 	}
-	tickMsg time.Time
 )
 
 const callTimeout = 8 * time.Second
@@ -251,10 +250,6 @@ func setDeviceTypeCmd(c *livebox.Client, key, dtype string) tea.Cmd {
 			err:   c.SetDeviceType(ctx, key, dtype),
 		}
 	}
-}
-
-func tickEvery(d time.Duration) tea.Cmd {
-	return tea.Tick(d, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 // copyToClipboardCmd writes `text` to the system clipboard. We reuse
