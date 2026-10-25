@@ -18,33 +18,31 @@ func friendlyLoginError(err error) (title, body, hint string) {
 		title = "Router login locked"
 		body = "Too many wrong password attempts.\n\n" +
 			"The Orange box temporarily blocks admin login.\n" +
-			"Wait for the timer, then run:\n\n" +
-			"  rui -profile PLH3\n\n" +
-			"Do not use plain `rui` (old ~/.config/rui/.env) while testing."
-		hint = "Press Enter or Esc  •  wait ~30s  •  r retry"
+			"Wait for the timer, then press p and choose the other house\n" +
+			"only if this machine is plugged into that Livebox."
+		hint = "p choose location  •  r retry  •  Enter dismiss"
 	case strings.Contains(lower, "401") || strings.Contains(lower, "invalid") || strings.Contains(lower, "credential"):
 		title = "Login rejected"
-		body = "The router refused these credentials.\n\n" +
-			"• Wrong password for this location?\n" +
-			"• Try: rui -profile auto  (pick via WiFi)\n" +
-			"• Or:  rui -profile PLH3  (force a site)"
-		hint = "Press Enter or Esc to dismiss  •  r retry after fixing 1Password / .env"
+		body = "This Livebox refused the saved profile.\n\n" +
+			"Warsaw and Wrocław both answer at 192.168.1.1.\n" +
+			"Press p and choose the house this machine is on."
+		hint = "p choose location  •  r retry  •  Enter dismiss"
 	case strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline"):
 		title = "Router unreachable"
 		body = "Could not reach the Livebox in time.\n\n" +
 			"• Are you on the home WiFi / LAN?\n" +
 			"• Router admin is usually http://192.168.1.1"
-		hint = "Press Enter or Esc to dismiss  •  check network, then r"
+		hint = "p choose location  •  r retry  •  Enter dismiss"
 	case strings.Contains(lower, "connection refused") || strings.Contains(lower, "no such host"):
 		title = "Cannot reach router"
 		body = "No HTTP response from the router host.\n\n" +
 			"rui talks to the Orange box on your LAN — not via PiKVM.\n" +
 			"Join the location WiFi first, then run rui again."
-		hint = "Press Enter or Esc to dismiss"
+		hint = "p choose location  •  Enter dismiss"
 	default:
 		title = "Login failed"
 		body = raw
-		hint = "Press Enter or Esc to dismiss  •  r retry"
+		hint = "p choose location  •  r retry  •  Enter dismiss"
 	}
 	return title, body, hint
 }

@@ -19,6 +19,7 @@ func helpSection(title string) helpRow {
 
 var helpRows = []helpRow{
 	helpSection("Locations"),
+	{"p", "choose Warsaw or Wrocław without leaving the TUI", false},
 	{"-profile", "PLH3 Wrocław · PLH1 Warsaw · auto via WiFi SSID", false},
 	{"", "On Ethernet use -profile PLH3 or -location PLH3", false},
 	{"", "Plain rui may fall back to stale ~/.config/rui/.env", false},

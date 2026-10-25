@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/j4y-w4lk3r/rui/internal/config"
 	"github.com/j4y-w4lk3r/rui/internal/livebox"
 )
 
@@ -25,6 +27,7 @@ const (
 	modeDeviceTypePick  // type picker modal
 	modeDeviceReserveIP // DHCP reservation IP input
 	modeLanguagePick    // UI language picker modal
+	modeProfilePick     // Warsaw / Wrocław login picker
 )
 
 // focusMode tracks which pane currently receives navigation keys. The two
@@ -64,6 +67,9 @@ type Model struct {
 	errorHint       string
 
 	locationLabel string // e.g. "Wrocław" when auto-detected
+	dial          string // optional SSH tunnel target; kept across profile switches
+	profileIdx    int    // profile picker selection
+	loginGen      int    // ignores a login result from a profile we already left
 
 	// Per-modal state.
 	mode      editMode
@@ -119,7 +125,7 @@ func New(client *livebox.Client, host, locationLabel string) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return loginCmd(m.client)
+	return loginCmd(m.client, m.loginGen)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -134,6 +140,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case loginDoneMsg:
+		if msg.gen != m.loginGen {
+			return m, nil
+		}
 		m.loading = ""
 		if msg.err != nil {
 			m.statusOK = false
@@ -356,11 +365,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter", "esc", " ":
 			m.showErrorDialog = false
 			return m, nil
+		case "p", "P":
+			return m.openProfilePicker(), nil
 		case "r", "R":
 			m.showErrorDialog = false
 			m.loading = "Logging in..."
 			m.status = ""
-			return m, loginCmd(m.client)
+			m.loginGen++
+			return m, loginCmd(m.client, m.loginGen)
 		}
 		return m, nil
 	}
@@ -393,8 +405,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleReserveIPKeys(msg)
 	case modeLanguagePick:
 		return m.handleLanguagePickerKeys(msg)
+	case modeProfilePick:
+		return m.handleProfileKeys(msg)
 	case modeDeviceDetail:
 		return m.handleDeviceDetailKeys(msg)
+	}
+
+	if key == "p" || key == "P" {
+		return m.openProfilePicker(), nil
 	}
 
 	// Refresh works from either pane.
@@ -733,6 +751,134 @@ func (m Model) handleTypePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleProfileKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	sites := config.ActiveLocations()
+	switch msg.String() {
+	case "esc", "h", "backspace":
+		m.mode = modeNormal
+	case "up", "k":
+		if m.profileIdx > 0 {
+			m.profileIdx--
+		}
+	case "down", "j":
+		if m.profileIdx < len(sites)-1 {
+			m.profileIdx++
+		}
+	case "home", "g":
+		m.profileIdx = 0
+	case "end", "G":
+		if len(sites) > 0 {
+			m.profileIdx = len(sites) - 1
+		}
+	case "enter", "l":
+		return m.chooseProfile()
+	}
+	return m, nil
+}
+
+func (m Model) openProfilePicker() Model {
+	sites := config.ActiveLocations()
+	m.profileIdx = 0
+	for i, loc := range sites {
+		if strings.EqualFold(loc.Label, m.locationLabel) || strings.EqualFold(loc.ID, m.locationLabel) {
+			m.profileIdx = i
+			break
+		}
+	}
+	m.mode = modeProfilePick
+	m.showErrorDialog = false
+	m.showHelp = false
+	return m
+}
+
+func (m Model) chooseProfile() (tea.Model, tea.Cmd) {
+	sites := config.ActiveLocations()
+	if m.profileIdx < 0 || m.profileIdx >= len(sites) {
+		m.mode = modeNormal
+		return m, nil
+	}
+	site := sites[m.profileIdx]
+	host, user, pass, label, err := loadProfile(site.ID)
+	if err != nil {
+		m.mode = modeNormal
+		m.loggedIn = false
+		m.loading = ""
+		m.statusOK = false
+		m.status = "Profile failed: " + err.Error()
+		m.errorTitle, m.errorBody, m.errorHint = friendlyLoginError(err)
+		m.showErrorDialog = true
+		return m, nil
+	}
+	client, err := livebox.New(host, user, pass)
+	if err != nil {
+		m.mode = modeNormal
+		m.showErrorDialog = true
+		m.errorTitle, m.errorBody, m.errorHint = friendlyLoginError(err)
+		return m, nil
+	}
+	if m.dial != "" {
+		if err := client.SetDial(m.dial); err != nil {
+			m.mode = modeNormal
+			m.showErrorDialog = true
+			m.errorTitle, m.errorBody, m.errorHint = friendlyLoginError(err)
+			return m, nil
+		}
+	}
+	m.client = client
+	m.host = host
+	m.locationLabel = label
+	m.mode = modeNormal
+	m.loggedIn = false
+	m.loading = "Logging in..."
+	m.status = ""
+	m.showErrorDialog = false
+	m.clearCached()
+	m.loginGen++
+	return m, loginCmd(client, m.loginGen)
+}
+
+func (m *Model) clearCached() {
+	m.info = nil
+	m.wan = nil
+	m.devices = nil
+	m.devicesLoaded = false
+	m.devicesErr = nil
+	m.devicesRefresh = false
+	m.wifi = nil
+	m.guest = nil
+	m.iptv = nil
+	m.phone = nil
+	m.power = nil
+	m.lang = nil
+	m.staticLeases = nil
+	m.gridIdx = 0
+	m.deviceIdx = 0
+}
+
+// UseDial remembers an SSH tunnel address so a later profile switch
+// keeps sending traffic there instead of the router's own LAN address.
+func (m *Model) UseDial(addr string) {
+	m.dial = strings.TrimSpace(addr)
+}
+
+// loadProfile reads one site from OpenBao or 1Password and remembers it
+// as the default for the next plain `rui`.
+var loadProfile = func(id string) (host, user, pass, label string, err error) {
+	if err = config.ApplyLocationByID(id); err != nil {
+		return
+	}
+	_ = config.SaveDefaultProfile(id)
+	_ = config.SyncEnvFile("")
+	host = strings.TrimSpace(os.Getenv("ROUTER_HOST"))
+	user = strings.TrimSpace(os.Getenv("username"))
+	pass = os.Getenv("password")
+	label = os.Getenv("RUI_LOCATION_LABEL")
+	if host == "" || user == "" || pass == "" {
+		err = fmt.Errorf("profile %s did not include a host and login", id)
+	}
+	return
+}
+
 func (m Model) handleLanguagePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	langs := m.languageChoices()
 	switch msg.String() {
@@ -947,13 +1093,16 @@ func (m Model) renderSidebar() string {
 }
 
 func (m Model) renderDetail(_ int) string {
+	if m.mode == modeProfilePick {
+		return m.renderProfilePicker()
+	}
 	if !m.loggedIn && m.loading != "" {
 		return m.loading
 	}
 	if !m.loggedIn {
 		return badStyle.Render(iconAlert+"  Not connected") + "\n\n" +
 			valStyle.Render("Login failed or credentials missing.") + "\n\n" +
-			hintStyle.Render("Use: rui -profile PLH3\nWait ~30s if router says too many attempts.\nPress r to retry.")
+			hintStyle.Render("Press p to choose Warsaw or Wrocław.\nPress r to retry this profile.")
 	}
 
 	// Modal sub-views.
@@ -1181,6 +1330,27 @@ func (m Model) renderTypePicker() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(hintStyle.Render("↑/↓ move  •  enter — apply  •  esc — cancel"))
+	return b.String()
+}
+
+func (m Model) renderProfilePicker() string {
+	var b strings.Builder
+	b.WriteString(sectionTitle("Choose location"))
+	b.WriteString(valStyle.Render("Both Liveboxes answer at the same address.\nPick the house this machine is plugged into."))
+	b.WriteString("\n\n")
+	for i, loc := range config.ActiveLocations() {
+		label := loc.ID + "  " + loc.Label
+		if strings.EqualFold(loc.Label, m.locationLabel) {
+			label += "  " + okStyle.Render("(saved)")
+		}
+		row := "  " + label
+		if i == m.profileIdx {
+			row = menuItemSel.Render("▸ " + label)
+		}
+		b.WriteString(row + "\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(hintStyle.Render("j/k move  •  enter apply  •  esc cancel"))
 	return b.String()
 }
 

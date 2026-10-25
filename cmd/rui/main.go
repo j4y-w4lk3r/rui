@@ -90,8 +90,10 @@ func main() {
 		return
 	}
 
+	model := tui.New(client, cfg.Host, os.Getenv("RUI_LOCATION_LABEL"))
+	model.UseDial(strings.TrimSpace(*dialAddr))
 	prog := tea.NewProgram(
-		tui.New(client, cfg.Host, os.Getenv("RUI_LOCATION_LABEL")),
+		model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)
