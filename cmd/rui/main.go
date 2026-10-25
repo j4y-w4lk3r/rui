@@ -29,7 +29,7 @@ var (
 
 func main() {
 	envPath := flag.String("env", "", "path to .env file with router credentials (overrides the cascade)")
-	profile := flag.String("profile", "", "load credentials from 1Password: auto, HOME, CABIN, PL, …")
+	profile := flag.String("profile", "", "load credentials from OpenBao or 1Password: auto, HOME, CABIN, PL, …")
 	location := flag.String("location", "", "force site when not on WiFi: HOME, CABIN (same as -profile CABIN)")
 	hostOverride := flag.String("host", "", "router address for Host/Origin (overrides 1Password / .env)")
 	dialAddr := flag.String("dial", "", "TCP address to connect to instead of -host (host:port), for an SSH tunnel")

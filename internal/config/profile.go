@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/j4y-w4lk3r/rui/internal/openbao"
 )
 
 // onePasswordProfile maps a short rui profile name to a 1Password login item.
@@ -45,6 +47,19 @@ func ApplyProfile(name string) error {
 	p, ok := profiles[key]
 	if !ok {
 		return fmt.Errorf("unknown profile %q (available: %s)", name, strings.Join(ProfileNames(), ", "))
+	}
+	if openbao.Configured() {
+		item, err := openbao.Read(key)
+		if err != nil {
+			return fmt.Errorf("profile %s: %w", key, err)
+		}
+		if err := setProfileEnv("username", item.User); err != nil {
+			return err
+		}
+		if err := setProfileEnv("password", item.Pass); err != nil {
+			return err
+		}
+		return setProfileEnv("ROUTER_HOST", item.Host)
 	}
 
 	username, err := opRead(p.opRef(p.UsernameField))
