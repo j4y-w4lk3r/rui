@@ -13,6 +13,9 @@ import (
 type Settings struct {
 	DefaultProfile string    `json:"default_profile"`
 	UpdatedAt      time.Time `json:"updated_at"`
+	// GatewayMACs maps a site ID to its router's MAC address(es), for site detection on a cable,
+	// e.g. {"PLH1": ["aa:bb:cc:dd:ee:ff"]}. Kept here (per user), never in the code.
+	GatewayMACs map[string][]string `json:"gateway_macs,omitempty"`
 }
 
 func configDir() (string, error) {
@@ -76,7 +79,8 @@ func SaveDefaultProfile(profile string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	s := Settings{DefaultProfile: profile, UpdatedAt: time.Now().UTC()}
+	s, _ := LoadSettings() // keep gateway_macs
+	s.DefaultProfile, s.UpdatedAt = profile, time.Now().UTC()
 	raw, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
@@ -98,8 +102,8 @@ func DefaultProfile() (string, error) {
 }
 
 // SyncEnvFile writes username/password/ROUTER_HOST from the current process
-// environment into the user .env (mode 0600). Called after a successful
-// 1Password profile apply so plain `rui` and other tools stay in sync.
+// environment into the user .env (mode 0600). rui itself no longer calls this
+// (credentials from OpenBao / 1Password stay in memory); kept for explicit use.
 func SyncEnvFile(path string) error {
 	user := strings.TrimSpace(os.Getenv("username"))
 	pass := os.Getenv("password")
@@ -151,6 +155,15 @@ func BootstrapCredentials(flagProfile, flagLocation string) error {
 
 	prof := ResolveStartupProfile(flagProfile, flagLocation)
 
+	// Not told explicitly: where we are (WiFi or the router's MAC) beats the saved default.
+	if !explicit && os.Getenv("username") == "" {
+		if loc, how, err := DetectAndApplyProfile(); err == nil {
+			_ = SaveDefaultProfile(loc.ID)
+			fmt.Fprintf(os.Stderr, "rui: location %s (%s) from %s\n", loc.ID, loc.Label, how)
+			return nil
+		}
+	}
+
 	if prof != "" {
 		saved, _ := DefaultProfile()
 		fromSaved := !explicit && strings.EqualFold(prof, saved) && saved != ""
@@ -167,14 +180,9 @@ func BootstrapCredentials(flagProfile, flagLocation string) error {
 				if err := SaveDefaultProfile(prof); err != nil {
 					fmt.Fprintf(os.Stderr, "rui: warning: could not save default profile: %v\n", err)
 				}
-				if err := syncEnvQuiet(); err != nil {
-					fmt.Fprintf(os.Stderr, "rui: warning: could not refresh ~/.config/rui/.env: %v\n", err)
-				} else if p, _ := UserEnvPath(); p != "" {
-					fmt.Fprintf(os.Stderr, "rui: profile %s saved as default; synced → %s\n", prof, p)
-				}
+				fmt.Fprintf(os.Stderr, "rui: profile %s saved as default (credentials stay in memory)\n", prof)
 			} else {
 				fmt.Fprintf(os.Stderr, "rui: default profile %s\n", prof)
-				_ = syncEnvQuiet()
 			}
 			return nil
 		}
@@ -186,21 +194,16 @@ func BootstrapCredentials(flagProfile, flagLocation string) error {
 
 	loc, ssid, err := DetectAndApplyProfile()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "rui: WiFi auto-location skipped: %v\n", err)
-		fmt.Fprintln(os.Stderr, "rui: tip: on Ethernet use  rui -profile PLH3  or  rui -location PLH3")
+		fmt.Fprintf(os.Stderr, "rui: auto-location skipped: %v\n", err)
+		fmt.Fprintln(os.Stderr, "rui: tip: use  rui -location PLH3, or add the router MAC to gateway_macs in ~/.config/rui/settings.json")
 		if _, statErr := os.Stat(mustUserEnvPath()); statErr == nil {
 			fmt.Fprintln(os.Stderr, "rui: warning: falling back to ~/.config/rui/.env — if login fails, use -profile PLH3")
 		}
 		return nil
 	}
 	_ = SaveDefaultProfile(loc.ID)
-	_ = syncEnvQuiet()
-	fmt.Fprintf(os.Stderr, "rui: location %s (%s) from WiFi %q\n", loc.ID, loc.Label, ssid)
+	fmt.Fprintf(os.Stderr, "rui: location %s (%s) from %s\n", loc.ID, loc.Label, ssid)
 	return nil
-}
-
-func syncEnvQuiet() error {
-	return SyncEnvFile("")
 }
 
 func mustUserEnvPath() string {

@@ -867,8 +867,7 @@ var loadProfile = func(id string) (host, user, pass, label string, err error) {
 	if err = config.ApplyLocationByID(id); err != nil {
 		return
 	}
-	_ = config.SaveDefaultProfile(id)
-	_ = config.SyncEnvFile("")
+	_ = config.SaveDefaultProfile(id) // credentials stay in memory, never written to disk
 	host = strings.TrimSpace(os.Getenv("ROUTER_HOST"))
 	user = strings.TrimSpace(os.Getenv("username"))
 	pass = os.Getenv("password")
