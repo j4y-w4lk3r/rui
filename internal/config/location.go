@@ -73,14 +73,18 @@ func ActiveLocations() []Location {
 	return out
 }
 
-// DetectLocation matches the current WiFi SSID to a configured location.
+// DetectLocation finds the site: the WiFi name first, then the router's MAC address
+// (works on a cable and on macOS). The second value says how it was found.
 func DetectLocation() (Location, string, error) {
-	ssid, err := currentWiFiSSID()
-	if err != nil {
-		return Location{}, "", err
-	}
-	if ssid == "" {
-		return Location{}, "", fmt.Errorf("not connected to WiFi (plug in or join the home network first)")
+	ssid, werr := currentWiFiSSID()
+	if werr != nil || ssid == "" {
+		if loc, how, err := locationFromGateway(); err == nil {
+			return loc, how, nil
+		} else if werr != nil {
+			return Location{}, "", fmt.Errorf("%v; %v", werr, err)
+		} else {
+			return Location{}, "", fmt.Errorf("not on WiFi and %v", err)
+		}
 	}
 
 	for _, loc := range locations {
@@ -89,7 +93,7 @@ func DetectLocation() (Location, string, error) {
 		}
 		for _, want := range loc.wifiFingerprints() {
 			if ssidMatches(ssid, want) {
-				return loc, ssid, nil
+				return loc, fmt.Sprintf("WiFi %q", ssid), nil
 			}
 		}
 	}
