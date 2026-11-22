@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 
 	"github.com/j4y-w4lk3r/rui/internal/config"
 	"github.com/j4y-w4lk3r/rui/internal/livebox"
+	"github.com/j4y-w4lk3r/rui/internal/openbao"
 	"github.com/j4y-w4lk3r/rui/internal/tui"
 )
 
@@ -28,10 +28,9 @@ var (
 )
 
 func main() {
-	envPath := flag.String("env", "", "path to .env file with router credentials (overrides the cascade)")
-	profile := flag.String("profile", "", "load credentials from OpenBao or 1Password: auto, HOME, CABIN, PL, …")
+	profile := flag.String("profile", "", "site to load from OpenBao: auto, HOME, CABIN")
 	location := flag.String("location", "", "force site when not on WiFi: HOME, CABIN (same as -profile CABIN)")
-	hostOverride := flag.String("host", "", "router address for Host/Origin (overrides 1Password / .env)")
+	hostOverride := flag.String("host", "", "router address for Host/Origin (overrides OpenBao)")
 	dialAddr := flag.String("dial", "", "TCP address to connect to instead of -host (host:port), for an SSH tunnel")
 	findName := flag.String("find", "", "find a LAN device by name and print its IP (non-interactive)")
 	listDevices := flag.Bool("list-devices", false, "list all LAN devices (name, IP, MAC) and exit")
@@ -49,10 +48,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, err := config.Load(*envPath)
+	cfg, err := config.Load("")
 	if err != nil {
 		if errors.Is(err, config.ErrNoConfig) {
-			printNoConfigHelp(*envPath)
+			printNoConfigHelp()
 			os.Exit(1)
 		}
 		fmt.Fprintln(os.Stderr, "rui: config error:", err)
@@ -103,59 +102,20 @@ func main() {
 	}
 }
 
-// printNoConfigHelp is what a fresh `brew install rui && rui` user sees
-// when they haven't configured anything yet. The goal is "give them
-// three obvious things to try, with copy-pasteable commands, in
-// chronological order of effort".
-func printNoConfigHelp(envPath string) {
-	cands := config.Candidates(envPath)
-	fmt.Fprintln(os.Stderr, "rui: no router credentials found.")
+// printNoConfigHelp: no login found. rui never keeps the router password on disk
+// (22/11/2026), so the help points to OpenBao/keyhole, not a .env file.
+func printNoConfigHelp() {
+	fmt.Fprintln(os.Stderr, "rui: no router credentials found (they are never stored on disk).")
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "Searched (in order):")
-	for _, p := range cands {
-		fmt.Fprintln(os.Stderr, "  -", p)
-	}
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "To get started, pick ONE of:")
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "  (a) per-user, install-anywhere — RECOMMENDED")
-	suggested := suggestedConfigPath()
-	fmt.Fprintln(os.Stderr, "      mkdir -p", filepath.Dir(suggested))
-	fmt.Fprintln(os.Stderr, "      cat > "+suggested+" <<'EOF'")
-	fmt.Fprintln(os.Stderr, "      username=admin")
-	fmt.Fprintln(os.Stderr, "      password=your-router-admin-password")
-	fmt.Fprintln(os.Stderr, "      # ROUTER_HOST=192.168.1.1   # optional")
-	fmt.Fprintln(os.Stderr, "      EOF")
-	fmt.Fprintln(os.Stderr, "      chmod 600", suggested)
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "  (b) project-local")
-	fmt.Fprintln(os.Stderr, "      cat > .env <<'EOF'")
-	fmt.Fprintln(os.Stderr, "      username=admin")
-	fmt.Fprintln(os.Stderr, "      password=your-router-admin-password")
-	fmt.Fprintln(os.Stderr, "      EOF")
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "  (c) one-shot via env vars")
-	fmt.Fprintln(os.Stderr, "      username=admin password=your-router-admin-password rui")
-	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "rui reads them on every start from:")
+	fmt.Fprintln(os.Stderr, "  - OpenBao secret/rui/<site>, with the token from keyhole (entry "+openbao.KeyholeEntry+"; kh-up, stick in),")
+	fmt.Fprintln(os.Stderr, "    or ~/.config/j4y/openbao-rui.token where keyhole does not run yet (macOS)")
 	if names := config.ProfileNames(); len(names) > 0 {
-		fmt.Fprintln(os.Stderr, "  (d) 1Password profile (requires op CLI)")
-		fmt.Fprintln(os.Stderr, "      rui -profile", names[0])
 		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Pick the site if it was not detected:  rui -profile", names[0])
 	}
-	fmt.Fprintln(os.Stderr, "Then run rui again. See `rui -h` or")
-	fmt.Fprintln(os.Stderr, "https://github.com/j4y-w4lk3r/rui#first-run for details.")
-}
-
-// suggestedConfigPath returns the XDG-friendly per-user path we
-// recommend, picking the same location config.Load will look in.
-func suggestedConfigPath() string {
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "rui", ".env")
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".config", "rui", ".env")
-	}
-	return "~/.config/rui/.env"
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "One-shot without any store:  username=admin password=... rui")
 }
 
 func runFind(client *livebox.Client, name string) error {

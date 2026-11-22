@@ -861,7 +861,7 @@ func (m *Model) UseDial(addr string) {
 	m.dial = strings.TrimSpace(addr)
 }
 
-// loadProfile reads one site from OpenBao or 1Password and remembers it
+// loadProfile reads one site from OpenBao and remembers it
 // as the default for the next plain `rui`.
 var loadProfile = func(id string) (host, user, pass, label string, err error) {
 	if err = config.ApplyLocationByID(id); err != nil {

@@ -8,48 +8,33 @@ import (
 	"github.com/j4y-w4lk3r/rui/internal/openbao"
 )
 
-const iotVaultID = "g3irkmq3taou5ko6gwxwlkcjd4"
-
-// Location describes one Orange Livebox home. WiFiSSIDs (and optional WiFiItem)
-// are used to auto-pick credentials when rui starts on that LAN.
+// Location describes one Orange Livebox home. Its login lives in OpenBao secret/rui/<id>
+// (lower case). WiFiSSIDs (plus the optional wifi_ssid in OpenBao) and the router's MAC
+// (settings.json gateway_macs) pick the site when rui starts on that LAN.
 type Location struct {
-	ID            string
-	Label         string
-	Item          string
-	UsernameField string
-	PasswordField string
-	WiFiSSIDs     []string
-	WiFiItem      string // optional 1Password WiFi login; SSID read from username
-	Active        bool
+	ID        string
+	Label     string
+	WiFiSSIDs []string
+	Active    bool
 }
 
 var locations = []Location{
 	{
-		ID:            "HOME",
-		Label:         "Home",
-		Item:          "home-orange-rui",
-		UsernameField: "username",
-		PasswordField: "password",
-		WiFiSSIDs:     []string{"MyWiFi"},
-		Active:        true,
+		ID:        "HOME",
+		Label:     "Home",
+		WiFiSSIDs: []string{"MyWiFi"},
+		Active:    true,
 	},
 	{
-		ID:            "OLD",
-		Label:         "Location 3",
-		Item:          "old-orange-rui",
-		UsernameField: "username",
-		PasswordField: "confirmpassword",
-		WiFiSSIDs:     []string{"OtherWiFi"},
-		Active:        false,
+		ID:        "OLD",
+		Label:     "Location 3",
+		WiFiSSIDs: []string{"OtherWiFi"},
+		Active:    false,
 	},
 	{
-		ID:            "CABIN",
-		Label:         "Cabin",
-		Item:          "cabin-orange-rui",
-		UsernameField: "username",
-		PasswordField: "confirmpassword",
-		WiFiItem:      "cabin-wifi",
-		Active:        true,
+		ID:     "CABIN",
+		Label:  "Cabin",
+		Active: true,
 	},
 }
 
@@ -100,37 +85,18 @@ func DetectLocation() (Location, string, error) {
 	return Location{}, ssid, fmt.Errorf("unknown location for WiFi %q (known: %s)", ssid, strings.Join(locationSummary(), "; "))
 }
 
-// ApplyLocation loads router credentials for loc from OpenBao, or from
-// 1Password when the OpenBao token file is not present.
+// ApplyLocation loads router credentials for loc from OpenBao (token from keyhole, or the
+// token file where keyhole does not run yet). Nothing is written to disk.
 func ApplyLocation(loc Location) error {
-	var username, password, host string
-	if openbao.Configured() {
-		item, err := openbao.Read(loc.ID)
-		if err != nil {
-			return fmt.Errorf("%s: %w", loc.ID, err)
-		}
-		username, password, host = item.User, item.Pass, item.Host
-	} else {
-		p := onePasswordProfile{
-			VaultID:       iotVaultID,
-			Item:          loc.Item,
-			UsernameField: loc.UsernameField,
-			PasswordField: loc.PasswordField,
-		}
-		var err error
-		username, err = opRead(p.opRef(p.UsernameField))
-		if err != nil {
-			return fmt.Errorf("%s: read username: %w", loc.ID, err)
-		}
-		password, err = opRead(p.opRef(p.PasswordField))
-		if err != nil {
-			return fmt.Errorf("%s: read password: %w", loc.ID, err)
-		}
-		host, err = opItemHost(loc.Item)
-		if err != nil {
-			return fmt.Errorf("%s: read host: %w", loc.ID, err)
-		}
+	if !openbao.Configured() {
+		_, err := openbao.Read(loc.ID) // explains where it looked
+		return fmt.Errorf("%s: %w", loc.ID, err)
 	}
+	item, err := openbao.Read(loc.ID)
+	if err != nil {
+		return fmt.Errorf("%s: %w", loc.ID, err)
+	}
+	username, password, host := item.User, item.Pass, item.Host
 
 	if err := setProfileEnv("username", username); err != nil {
 		return err
@@ -177,10 +143,6 @@ func (loc Location) wifiFingerprints() []string {
 	if openbao.Configured() {
 		if item, err := openbao.Read(loc.ID); err == nil && item.WiFiSSID != "" {
 			out = append(out, item.WiFiSSID)
-		}
-	} else if loc.WiFiItem != "" {
-		if ssid, err := opRead(fmt.Sprintf("op://%s/%s/username", iotVaultID, loc.WiFiItem)); err == nil && ssid != "" {
-			out = append(out, ssid)
 		}
 	}
 	return out

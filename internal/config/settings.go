@@ -16,6 +16,10 @@ type Settings struct {
 	// GatewayMACs maps a site ID to its router's MAC address(es), for site detection on a cable,
 	// e.g. {"HOME": ["aa:bb:cc:dd:ee:ff"]}. Kept here (per user), never in the code.
 	GatewayMACs map[string][]string `json:"gateway_macs,omitempty"`
+	// KeyholeVault / KeyholeIdentity: where `keyhole get` finds the vault and the age identity
+	// for the OpenBao token (read by internal/openbao; kept here so SaveDefaultProfile keeps them).
+	KeyholeVault    string `json:"keyhole_vault,omitempty"`
+	KeyholeIdentity string `json:"keyhole_identity,omitempty"`
 }
 
 func configDir() (string, error) {
@@ -35,15 +39,6 @@ func settingsPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "settings.json"), nil
-}
-
-// UserEnvPath is the recommended per-user .env location.
-func UserEnvPath() (string, error) {
-	dir, err := configDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, ".env"), nil
 }
 
 // LoadSettings reads ~/.config/rui/settings.json (missing file → zero value).
@@ -66,7 +61,7 @@ func LoadSettings() (Settings, error) {
 	return s, nil
 }
 
-// SaveDefaultProfile remembers which 1Password profile plain `rui` should use.
+// SaveDefaultProfile remembers which site plain `rui` should use.
 func SaveDefaultProfile(profile string) error {
 	profile = strings.ToUpper(strings.TrimSpace(profile))
 	if profile == "" || profile == "AUTO" {
@@ -101,32 +96,7 @@ func DefaultProfile() (string, error) {
 	return strings.ToUpper(strings.TrimSpace(s.DefaultProfile)), nil
 }
 
-// SyncEnvFile writes username/password/ROUTER_HOST from the current process
-// environment into the user .env (mode 0600). rui itself no longer calls this
-// (credentials from OpenBao / 1Password stay in memory); kept for explicit use.
-func SyncEnvFile(path string) error {
-	user := strings.TrimSpace(os.Getenv("username"))
-	pass := os.Getenv("password")
-	host := strings.TrimSpace(getEnv("ROUTER_HOST", "192.168.1.1"))
-	if user == "" || pass == "" {
-		return fmt.Errorf("cannot sync .env: credentials not in environment")
-	}
-	if path == "" {
-		var err error
-		path, err = UserEnvPath()
-		if err != nil {
-			return err
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	body := fmt.Sprintf("# Written by rui from 1Password — do not commit\nusername=%s\npassword=%s\nROUTER_HOST=%s\n",
-		user, pass, host)
-	return os.WriteFile(path, []byte(body), 0o600)
-}
-
-// ResolveStartupProfile picks the profile to load before .env.
+// ResolveStartupProfile picks the profile to load.
 // Priority: CLI flags > RUI_LOCATION env > saved default > auto (empty string).
 func ResolveStartupProfile(flagProfile, flagLocation string) string {
 	if p := strings.TrimSpace(flagProfile); p != "" {
@@ -144,10 +114,10 @@ func ResolveStartupProfile(flagProfile, flagLocation string) string {
 	return ""
 }
 
-// BootstrapCredentials loads router creds from 1Password / WiFi before .env.
+// BootstrapCredentials loads router creds from OpenBao into the process environment (memory only).
 // Profile resolution order: -profile / -location / RUI_LOCATION → saved default → WiFi auto.
-// Explicit -profile always refreshes from 1Password (even if username/password are already
-// exported in the shell) and saves the default + ~/.config/rui/.env.
+// Explicit -profile always refreshes (even if username/password are already exported in the
+// shell) and saves only the profile name as the default (settings.json; no secrets).
 func BootstrapCredentials(flagProfile, flagLocation string) error {
 	explicit := strings.TrimSpace(flagProfile) != "" ||
 		strings.TrimSpace(flagLocation) != "" ||
@@ -157,7 +127,12 @@ func BootstrapCredentials(flagProfile, flagLocation string) error {
 
 	// Not told explicitly: where we are (WiFi or the router's MAC) beats the saved default.
 	if !explicit && os.Getenv("username") == "" {
-		if loc, how, err := DetectAndApplyProfile(); err == nil {
+		if loc, how, derr := DetectLocation(); derr == nil {
+			// The site is known: use its login or stop. Never fall back to another site's login
+			// (22/11/2026: a failed load fell back to the saved default and sent the wrong site's login).
+			if err := ApplyLocation(loc); err != nil {
+				return fmt.Errorf("site %s (%s, from %s): %w", loc.ID, loc.Label, how, err)
+			}
 			_ = SaveDefaultProfile(loc.ID)
 			fmt.Fprintf(os.Stderr, "rui: location %s (%s) from %s\n", loc.ID, loc.Label, how)
 			return nil
@@ -171,7 +146,7 @@ func BootstrapCredentials(flagProfile, flagLocation string) error {
 		if err := ApplyProfile(prof); err != nil {
 			if fromSaved {
 				fmt.Fprintf(os.Stderr, "rui: saved default profile %s failed: %v\n", prof, err)
-				fmt.Fprintln(os.Stderr, "rui: tip: run  rui -profile CABIN  to refresh from OpenBao or 1Password")
+				fmt.Fprintln(os.Stderr, "rui: tip: run  rui -profile CABIN  to load it from OpenBao")
 			} else {
 				return fmt.Errorf("profile %s: %w", prof, err)
 			}
@@ -196,20 +171,9 @@ func BootstrapCredentials(flagProfile, flagLocation string) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "rui: auto-location skipped: %v\n", err)
 		fmt.Fprintln(os.Stderr, "rui: tip: use  rui -location CABIN, or add the router MAC to gateway_macs in ~/.config/rui/settings.json")
-		if _, statErr := os.Stat(mustUserEnvPath()); statErr == nil {
-			fmt.Fprintln(os.Stderr, "rui: warning: falling back to ~/.config/rui/.env — if login fails, use -profile CABIN")
-		}
 		return nil
 	}
 	_ = SaveDefaultProfile(loc.ID)
 	fmt.Fprintf(os.Stderr, "rui: location %s (%s) from %s\n", loc.ID, loc.Label, ssid)
 	return nil
-}
-
-func mustUserEnvPath() string {
-	p, err := UserEnvPath()
-	if err != nil {
-		return ""
-	}
-	return p
 }

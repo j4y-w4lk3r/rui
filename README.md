@@ -70,21 +70,31 @@ Grab the right tarball for your platform from the
 
 ## First run
 
-1. Drop your router admin credentials into a `.env` file (gitignored):
+rui never keeps the router password on disk. On every start it reads the login
+for the detected site (Wi-Fi name, or the router's MAC on a cable) from:
 
-   ```env
-   username=admin
-   password=your-router-admin-password
-   ROUTER_HOST=192.168.1.1     # optional; defaults to 192.168.1.1
+1. **OpenBao** `secret/rui/<site>` (username, password, host), with the token from
+   **keyhole** (entry `openbao-rui`, made by `scripts/keyhole-setup.sh`): a running keyhole
+   daemon answers without a touch, else one touch on the vault. Where the vault and the age
+   identity are, per machine, in `~/.config/rui/settings.json`:
+
+   ```json
+   { "keyhole_vault": "/path/to/vault.age", "keyhole_identity": "~/path/to/identity.txt" }
    ```
 
-2. Run it:
+   (or `RUI_KEYHOLE_VAULT` / `RUI_KEYHOLE_ID`). On machines without keyhole (servers), the
+   token sits in `~/.config/j4y/openbao-rui.token` (policy rui: reads the router logins only).
 
-   ```bash
-   rui                         # uses .env in $PWD
-   rui -env path/to/other.env  # different file
-   rui -debug 2>debug.log      # log every HTTP request/response
-   ```
+1Password is not used.
+
+```bash
+rui                         # site detected
+rui -profile CABIN           # pick the site
+username=admin password=... rui   # one-shot, nothing stored
+rui -debug 2>debug.log      # log every HTTP request/response
+```
+
+The developer tools under `cmd/` (probe, lab, …) still take `-env FILE` for a test router.
 
 ## Keys
 
@@ -112,8 +122,8 @@ mapping is stricter — if calls come back `Permission denied`, see the
 `cmd/lab` tool below to reverse-engineer the exact request shape the
 web UI uses.
 
-If a call fails with `Permission denied`, double-check that the account
-in `.env` actually has admin rights — the regular "user" account on
+If a call fails with `Permission denied`, double-check that the router account
+actually has admin rights — the regular "user" account on
 these boxes can only read a subset of the API.
 
 ## Reverse-engineering toolkit
