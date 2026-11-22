@@ -13,6 +13,9 @@ import (
 type Settings struct {
 	DefaultProfile string    `json:"default_profile"`
 	UpdatedAt      time.Time `json:"updated_at"`
+	// Sites: the router sites, e.g. [{"id": "HOME", "label": "Home", "wifi_ssids": ["MyWiFi"]}].
+	// Kept here (per user), never in the code. Each site's login is OpenBao secret/rui/<id>.
+	Sites []Site `json:"sites,omitempty"`
 	// GatewayMACs maps a site ID to its router's MAC address(es), for site detection on a cable,
 	// e.g. {"HOME": ["aa:bb:cc:dd:ee:ff"]}. Kept here (per user), never in the code.
 	GatewayMACs map[string][]string `json:"gateway_macs,omitempty"`
@@ -20,6 +23,14 @@ type Settings struct {
 	// for the OpenBao token (read by internal/openbao; kept here so SaveDefaultProfile keeps them).
 	KeyholeVault    string `json:"keyhole_vault,omitempty"`
 	KeyholeIdentity string `json:"keyhole_identity,omitempty"`
+}
+
+// Site is one entry of settings.json "sites".
+type Site struct {
+	ID        string   `json:"id"`
+	Label     string   `json:"label,omitempty"`
+	WiFiSSIDs []string `json:"wifi_ssids,omitempty"`
+	Inactive  bool     `json:"inactive,omitempty"`
 }
 
 func configDir() (string, error) {
@@ -74,7 +85,7 @@ func SaveDefaultProfile(profile string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	s, _ := LoadSettings() // keep gateway_macs
+	s, _ := LoadSettings() // keep sites, gateway_macs, keyhole paths
 	s.DefaultProfile, s.UpdatedAt = profile, time.Now().UTC()
 	raw, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -87,7 +98,7 @@ func SaveDefaultProfile(profile string) error {
 	return os.WriteFile(path, raw, 0o600)
 }
 
-// DefaultProfile returns the saved profile name, e.g. CABIN.
+// DefaultProfile returns the saved profile name, e.g. HOME.
 func DefaultProfile() (string, error) {
 	s, err := LoadSettings()
 	if err != nil {
@@ -146,7 +157,7 @@ func BootstrapCredentials(flagProfile, flagLocation string) error {
 		if err := ApplyProfile(prof); err != nil {
 			if fromSaved {
 				fmt.Fprintf(os.Stderr, "rui: saved default profile %s failed: %v\n", prof, err)
-				fmt.Fprintln(os.Stderr, "rui: tip: run  rui -profile CABIN  to load it from OpenBao")
+				fmt.Fprintln(os.Stderr, "rui: tip: run  rui -profile <site ID>  to load it from OpenBao")
 			} else {
 				return fmt.Errorf("profile %s: %w", prof, err)
 			}
@@ -170,7 +181,7 @@ func BootstrapCredentials(flagProfile, flagLocation string) error {
 	loc, ssid, err := DetectAndApplyProfile()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "rui: auto-location skipped: %v\n", err)
-		fmt.Fprintln(os.Stderr, "rui: tip: use  rui -location CABIN, or add the router MAC to gateway_macs in ~/.config/rui/settings.json")
+		fmt.Fprintln(os.Stderr, "rui: tip: use  rui -location <site ID>, or add the router MAC to gateway_macs in ~/.config/rui/settings.json")
 		return nil
 	}
 	_ = SaveDefaultProfile(loc.ID)

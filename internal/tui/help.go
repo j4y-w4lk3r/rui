@@ -19,9 +19,9 @@ func helpSection(title string) helpRow {
 
 var helpRows = []helpRow{
 	helpSection("Locations"),
-	{"p", "choose Home or Cabin without leaving the TUI", false},
-	{"-profile", "CABIN Cabin · HOME Home · auto via WiFi SSID", false},
-	{"", "On Ethernet use -profile CABIN or -location CABIN", false},
+	{"p", "choose another site without leaving the TUI", false},
+	{"-profile", "a site ID from settings.json, or auto (WiFi SSID / router MAC)", false},
+	{"", "On Ethernet: gateway_macs in settings.json, or -location <site ID>", false},
 	{"", "Plain rui may fall back to stale ~/.config/rui/.env", false},
 
 	helpSection("Global"),

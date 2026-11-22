@@ -70,8 +70,21 @@ Grab the right tarball for your platform from the
 
 ## First run
 
-rui never keeps the router password on disk. On every start it reads the login
-for the detected site (Wi-Fi name, or the router's MAC on a cable) from:
+rui never keeps the router password on disk. Your sites are listed, per machine, in
+`~/.config/rui/settings.json` (nothing about them is in the code):
+
+```json
+{
+  "sites": [
+    { "id": "HOME", "label": "Home", "wifi_ssids": ["MyWiFi"] },
+    { "id": "CABIN", "label": "Cabin" }
+  ],
+  "gateway_macs": { "HOME": ["aa:bb:cc:dd:ee:ff"], "CABIN": ["11:22:33:44:55:66"] }
+}
+```
+
+On every start it finds the site (Wi-Fi name, or the router's MAC on a cable) and reads its
+login from:
 
 1. **OpenBao** `secret/rui/<site>` (username, password, host), with the token from
    **keyhole** (entry `openbao-rui`, made by `scripts/keyhole-setup.sh`): a running keyhole
@@ -89,7 +102,7 @@ for the detected site (Wi-Fi name, or the router's MAC on a cable) from:
 
 ```bash
 rui                         # site detected
-rui -profile CABIN           # pick the site
+rui -profile HOME           # pick the site
 username=admin password=... rui   # one-shot, nothing stored
 rui -debug 2>debug.log      # log every HTTP request/response
 ```

@@ -24,7 +24,7 @@ func friendlyLoginError(err error) (title, body, hint string) {
 	case strings.Contains(lower, "401") || strings.Contains(lower, "invalid") || strings.Contains(lower, "credential"):
 		title = "Login rejected"
 		body = "This Livebox refused the saved profile.\n\n" +
-			"Home and Cabin both answer at 192.168.1.1.\n" +
+			"All your sites can answer at 192.168.1.1.\n" +
 			"Press p and choose the house this machine is on."
 		hint = "p choose location  •  r retry  •  Enter dismiss"
 	case strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline"):

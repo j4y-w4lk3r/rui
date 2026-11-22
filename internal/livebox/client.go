@@ -475,7 +475,7 @@ func formatAPIErrors(errs []apiError) string {
 	}
 	e := errs[0]
 	if e.WaitTime > 0 {
-		return fmt.Sprintf("too many failed login attempts — wait %ds, then use: rui -profile CABIN", e.WaitTime)
+		return fmt.Sprintf("too many failed login attempts — wait %ds, then use: rui -profile <site ID>", e.WaitTime)
 	}
 	if e.Description != "" {
 		return e.Description

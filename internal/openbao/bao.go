@@ -1,6 +1,6 @@
 // Package openbao reads one router login from OpenBao KV v2.
 //
-// Items live at secret/rui/home, secret/rui/cabin, … with username, password,
+// Items live at secret/rui/<site id> (lower case) with username, password,
 // and host. wifi_ssid is optional. The token (policy rui) can read that path only.
 //
 // The token comes from, first hit wins:
@@ -63,7 +63,7 @@ func TokenSource() string {
 	return tokFrom
 }
 
-// Read loads secret/rui/<id>. id is a profile name such as home or pl.
+// Read loads secret/rui/<id>. id is a site ID such as home.
 func Read(id string) (Router, error) {
 	name := strings.ToLower(strings.TrimSpace(id))
 	if name == "" {

@@ -3,14 +3,16 @@ package config
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/j4y-w4lk3r/rui/internal/openbao"
 )
 
-// Location describes one Orange Livebox home. Its login lives in OpenBao secret/rui/<id>
-// (lower case). WiFiSSIDs (plus the optional wifi_ssid in OpenBao) and the router's MAC
-// (settings.json gateway_macs) pick the site when rui starts on that LAN.
+// Location describes one router site. Its login lives in OpenBao secret/rui/<id> (lower case).
+// The sites themselves come from ~/.config/rui/settings.json ("sites"; without it, the IDs in
+// "gateway_macs"), so no place or network name is kept in the code. WiFiSSIDs (plus the optional
+// wifi_ssid in OpenBao) and the router's MAC (gateway_macs) pick the site when rui starts on that LAN.
 type Location struct {
 	ID        string
 	Label     string
@@ -18,24 +20,42 @@ type Location struct {
 	Active    bool
 }
 
-var locations = []Location{
-	{
-		ID:        "HOME",
-		Label:     "Home",
-		WiFiSSIDs: []string{"MyWiFi"},
-		Active:    true,
-	},
-	{
-		ID:        "OLD",
-		Label:     "Location 3",
-		WiFiSSIDs: []string{"OtherWiFi"},
-		Active:    false,
-	},
-	{
-		ID:     "CABIN",
-		Label:  "Cabin",
-		Active: true,
-	},
+// locations reads the site list from settings.json on every call (it is tiny).
+func locations() []Location {
+	s, err := LoadSettings()
+	if err != nil {
+		return nil
+	}
+	return s.locations()
+}
+
+func (s Settings) locations() []Location {
+	var out []Location
+	seen := map[string]bool{}
+	for _, site := range s.Sites {
+		id := strings.ToUpper(strings.TrimSpace(site.ID))
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		label := strings.TrimSpace(site.Label)
+		if label == "" {
+			label = id
+		}
+		out = append(out, Location{ID: id, Label: label, WiFiSSIDs: site.WiFiSSIDs, Active: !site.Inactive})
+	}
+	var extra []string
+	for id := range s.GatewayMACs {
+		if id = strings.ToUpper(strings.TrimSpace(id)); id != "" && !seen[id] {
+			seen[id] = true
+			extra = append(extra, id)
+		}
+	}
+	sort.Strings(extra)
+	for _, id := range extra {
+		out = append(out, Location{ID: id, Label: id, Active: true})
+	}
+	return out
 }
 
 // LocationNames returns active location IDs for help text.
@@ -50,7 +70,7 @@ func LocationNames() []string {
 // ActiveLocations returns the sites the TUI can switch to.
 func ActiveLocations() []Location {
 	var out []Location
-	for _, loc := range locations {
+	for _, loc := range locations() {
 		if loc.Active {
 			out = append(out, loc)
 		}
@@ -72,7 +92,7 @@ func DetectLocation() (Location, string, error) {
 		}
 	}
 
-	for _, loc := range locations {
+	for _, loc := range locations() {
 		if !loc.Active {
 			continue
 		}
@@ -127,7 +147,7 @@ func DetectAndApplyProfile() (Location, string, error) {
 // ApplyLocationByID loads a specific location without WiFi detection.
 func ApplyLocationByID(id string) error {
 	key := strings.ToUpper(strings.TrimSpace(id))
-	for _, loc := range locations {
+	for _, loc := range locations() {
 		if strings.EqualFold(loc.ID, key) {
 			if !loc.Active {
 				return fmt.Errorf("location %s is inactive", loc.ID)
@@ -154,7 +174,7 @@ func ssidMatches(got, want string) bool {
 
 func locationSummary() []string {
 	var out []string
-	for _, loc := range locations {
+	for _, loc := range locations() {
 		if !loc.Active {
 			continue
 		}

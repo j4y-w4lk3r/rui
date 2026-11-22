@@ -88,7 +88,7 @@ func main() {
 
 	fmt.Fprintf(&log, "# DHCP probe — %s\n\n", ts)
 	fmt.Fprintf(&log, "- Host: `%s`\n", cfg.Host)
-	fmt.Fprintf(&log, "- Profile: CABIN (Funbox 10)\n\n")
+	fmt.Fprintf(&log, "- Router: Funbox 10\n\n")
 
 	fmt.Println("→ DHCP exhaustive probe on", cfg.Host)
 

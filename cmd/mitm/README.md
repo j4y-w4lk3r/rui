@@ -64,7 +64,7 @@ calls — `chromedp` couldn't capture those.
 ## Capturing DHCP reservation API (follow-up)
 
 The Livebox web UI uses sysbus calls that are not documented in our probe
-list yet (`Hosts.getReservedAddresses` returns NOT_FOUND on CABIN firmware).
+list yet (`Hosts.getReservedAddresses` returns NOT_FOUND on Funbox 10 firmware).
 To discover the real method + JSON params:
 
 1. Install mitmproxy if needed (`pip install mitmproxy` or your distro package).
@@ -99,7 +99,7 @@ Look for POSTs to `/ws` or `/api/` with JSON like
 7. Verify with probe before wiring the TUI:
 
 ```bash
-rui -profile CABIN   # or your site
+rui -profile HOME   # your site ID
 go run ./cmd/probe -- <Service> <Method> '<json-params>'
 ```
 

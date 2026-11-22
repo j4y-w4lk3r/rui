@@ -119,7 +119,7 @@ func locationFromGateway() (Location, string, error) {
 	for id, macs := range s.GatewayMACs {
 		for _, want := range macs {
 			if normMAC(want) == mac {
-				for _, loc := range locations {
+				for _, loc := range s.locations() {
 					if loc.Active && strings.EqualFold(loc.ID, id) {
 						return loc, "router " + gw + " " + mac, nil
 					}

@@ -28,8 +28,8 @@ var (
 )
 
 func main() {
-	profile := flag.String("profile", "", "site to load from OpenBao: auto, HOME, CABIN")
-	location := flag.String("location", "", "force site when not on WiFi: HOME, CABIN (same as -profile CABIN)")
+	profile := flag.String("profile", "", "site to load from OpenBao: auto or a site ID from settings.json")
+	location := flag.String("location", "", "force the site when not on WiFi (same as -profile ID)")
 	hostOverride := flag.String("host", "", "router address for Host/Origin (overrides OpenBao)")
 	dialAddr := flag.String("dial", "", "TCP address to connect to instead of -host (host:port), for an SSH tunnel")
 	findName := flag.String("find", "", "find a LAN device by name and print its IP (non-interactive)")

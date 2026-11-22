@@ -8,14 +8,14 @@ import (
 
 // ApplyProfile reads router credentials for name from OpenBao and exports them into the
 // process environment (username, password, ROUTER_HOST), in memory only. name is "auto"
-// (detect the site) or a site ID such as HOME. 1Password is no longer used (22/11/2026).
+// (detect the site) or a site ID from settings.json. 1Password is not used.
 func ApplyProfile(name string) error {
 	key := strings.ToUpper(strings.TrimSpace(name))
 	if key == "AUTO" {
 		_, _, err := DetectAndApplyProfile()
 		return err
 	}
-	for _, loc := range locations {
+	for _, loc := range locations() {
 		if strings.EqualFold(loc.ID, key) {
 			return ApplyLocationByID(key)
 		}

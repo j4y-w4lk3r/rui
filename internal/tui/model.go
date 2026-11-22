@@ -27,7 +27,7 @@ const (
 	modeDeviceTypePick  // type picker modal
 	modeDeviceReserveIP // DHCP reservation IP input
 	modeLanguagePick    // UI language picker modal
-	modeProfilePick     // Home / Cabin login picker
+	modeProfilePick     // site login picker
 )
 
 // focusMode tracks which pane currently receives navigation keys. The two
@@ -66,7 +66,7 @@ type Model struct {
 	errorBody       string
 	errorHint       string
 
-	locationLabel string // e.g. "Cabin" when auto-detected
+	locationLabel string // the site label from settings.json when auto-detected
 	dial          string // optional SSH tunnel target; kept across profile switches
 	profileIdx    int    // profile picker selection
 	loginGen      int    // ignores a login result from a profile we already left
@@ -1101,7 +1101,7 @@ func (m Model) renderDetail(_ int) string {
 	if !m.loggedIn {
 		return badStyle.Render(iconAlert+"  Not connected") + "\n\n" +
 			valStyle.Render("Login failed or credentials missing.") + "\n\n" +
-			hintStyle.Render("Press p to choose Home or Cabin.\nPress r to retry this profile.")
+			hintStyle.Render("Press p to choose another site.\nPress r to retry this profile.")
 	}
 
 	// Modal sub-views.
